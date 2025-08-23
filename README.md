@@ -1,124 +1,100 @@
-# Sevabot - AI Document Assistant
+# Steps to Push Your Code to GitHub
 
-A multi-user RAG (Retrieval-Augmented Generation) system that allows users to upload documents and ask questions about them through a conversational interface.
+## 1. Create folder structure for images
+mkdir -p images/v1
 
-## ✨ Features
+## 2. Add your screenshot files
+# Take screenshots and save them as:
+# - images/v1/login.png (Login page screenshot)
+# - images/v1/file-manager.png (File Manager tab screenshot)  
+# - images/v1/chat.png (Chat interface screenshot)
 
-- **Multi-user support** with Google OAuth authentication
-- **Document upload** support (.txt, .md, .pdf, .docx)
-- **Conversational chat** with document context
-- **Source citation** in AI responses
-- **Feedback system** for improving responses
-- **Session management** with conversation history
-- **File management** with indexing status
+## 3. Create .gitignore file
+echo "# Environment and secrets
+.env
+.env.local
+.env.production
 
-## 🛠️ Tech Stack
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
 
-- **Backend**: FastAPI, Python
-- **Frontend**: Gradio
-- **Database**: Supabase (PostgreSQL)
-- **Vector Store**: ChromaDB
-- **LLM**: OpenAI GPT-4
-- **Authentication**: Google OAuth via Supabase
+# RAG data (will be recreated)
+user_documents/
+rag_index/
 
-## 🚀 Quick Start
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
-### Prerequisites
-- Python 3.8+
-- Supabase account
-- OpenAI API key
-- Google OAuth configured in Supabase
+# OS
+.DS_Store
+Thumbs.db
 
-### Installation
+# Logs
+*.log
 
-1. **Clone the repository**
-```bash
-git clone <your-repo-url>
-cd sevabot
-```
+# Keep images folder but ignore temp files
+images/**/.DS_Store" > .gitignore
 
-2. **Install dependencies**
-```bash
-pip install -r requirements.txt
-```
+## 4. Initialize Git repository (if not already done)
+git init
 
-3. **Set up environment variables**
-```bash
-cp .env.example .env
-# Edit .env with your credentials
-```
+## 5. Add all files to Git (including images)
+git add .
+git add images/v1/*.png
 
-4. **Set up database**
-- Create a Supabase project
-- Run the SQL from `database_schema.sql` in Supabase SQL Editor
+## 6. Create initial commit
+git commit -m "Initial commit: Sevabot RAG Assistant
 
-5. **Run the application**
-```bash
-python main.py
-```
+- Multi-user document Q&A system
+- Google OAuth authentication  
+- RAG with ChromaDB and OpenAI
+- Gradio web interface
+- Feedback system and session management
+- Added screenshots for documentation"
 
-6. **Access the app**
-- Open http://localhost:8000
-- Sign in with your @sadhguru.org Google account
+## 7. Create GitHub repository
+# Go to GitHub.com and create a new repository named 'sevabot'
+# Do NOT initialize with README (we already have one)
+# Make it private for now
 
-## 📝 Environment Variables
+## 8. Link your local repo to GitHub
+# Replace YOUR_USERNAME with your actual GitHub username
+git remote add origin https://github.com/YOUR_USERNAME/sevabot.git
 
-Required variables (add to `.env`):
-```bash
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-OPENAI_API_KEY=your_openai_api_key
-COOKIE_SECRET=your_secure_random_string
-```
+## 9. Push to GitHub
+git branch -M main
+git push -u origin main
 
-Optional (has defaults):
-```bash
-ALLOWED_DOMAIN=sadhguru.org
-CHAT_MODEL=gpt-4o
-TOP_K=8
-```
+## 10. Verify the upload
+# Go to https://github.com/YOUR_USERNAME/sevabot
+# You should see all your files uploaded including the images folder
+# Check that the README.md shows the screenshots properly
 
-## 📊 Usage
+## 11. Set up GitHub Secrets (for deployment)
+# Go to your repo > Settings > Secrets and Variables > Actions
+# Add these secrets:
+# - SUPABASE_URL
+# - SUPABASE_KEY  
+# - SUPABASE_SERVICE_ROLE_KEY
+# - OPENAI_API_KEY
+# - COOKIE_SECRET
 
-1. **Upload Documents**: Go to File Manager tab and upload your documents
-2. **Chat**: Ask questions about your uploaded documents
-3. **Feedback**: Rate responses to improve the system
-4. **Sessions**: Manage multiple conversation threads
+## 12. Future updates
+# When you make changes:
+git add .
+git commit -m "Description of your changes"
+git push
 
-## 🔒 Security
-
-- Domain-restricted authentication (@sadhguru.org only)
-- User-isolated document storage
-- Secure session management
-- Environment-based configuration
-
-## 📁 Project Structure
-
-```
-sevabot/
-├── main.py              # FastAPI application entry point
-├── ui.py                # Gradio interface
-├── ui_service.py        # UI business logic
-├── auth.py              # Authentication handling
-├── chat_service.py      # Chat and conversation management
-├── rag_service.py       # RAG and vector storage
-├── file_service.py      # File upload and management
-├── config.py            # Configuration management
-├── constants.py         # Application constants
-├── database_schema.sql  # Database schema
-├── requirements.txt     # Python dependencies
-└── README.md           # This file
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## 📄 License
-
-Private repository - All rights reserved.
+## Alternative: If you prefer SSH (more secure)
+# First set up SSH key with GitHub, then use:
+# git remote add origin git@github.com:YOUR_USERNAME/sevabot.git

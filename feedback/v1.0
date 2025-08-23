@@ -8,3 +8,10 @@ some improvements to be made:
 7) see if #sessions can be incrementally added without warning, and IF there's a warning. 
 8) batch testing api endpoint with excel file upload option with questions and dummy answers. write an evaluation script to compare the answers.
 9) increase the conversational history loading speed for a session. Also why the sessions bar loads whenever an inferencing is happening?
+10) change vvvv.supabase.co to Sevabot during google login
+11) see if excel sheet can be uploaded
+12) mention file extensions that are allowed, and raise a warnng if the extension is not allowed.
+13) upload/delete logs to be update file-wise, and not bulk logging.
+14) introduce logging folder for debugging, alongwith a few logs
+15) see how to adjust redirect-url/allowed domain/etc. in .env file, and if they are used.
+16) there are 2 folders, rag-documents and user-documents. see if it happens again.
