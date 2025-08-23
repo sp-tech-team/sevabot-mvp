@@ -1,100 +1,204 @@
-# Steps to Push Your Code to GitHub
+# Sevabot - Multi-User RAG Assistant
 
-## 1. Create folder structure for images
-mkdir -p images/v1
+A clean, modular RAG (Retrieval-Augmented Generation) system with multi-user support, conversational memory, and file management.
 
-## 2. Add your screenshot files
-# Take screenshots and save them as:
-# - images/v1/login.png (Login page screenshot)
-# - images/v1/file-manager.png (File Manager tab screenshot)  
-# - images/v1/chat.png (Chat interface screenshot)
+## 📸 Screenshots
 
-## 3. Create .gitignore file
-echo "# Environment and secrets
-.env
-.env.local
-.env.production
+### Login Page
+![Login](images/v1/login.png)
 
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.venv/
+### File Manager
+![File Manager](images/v1/file-manager.png)
 
-# RAG data (will be recreated)
-user_documents/
-rag_index/
+### Chat Interface
+![Chat](images/v1/chat.png)
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+## ✨ Features
 
-# OS
-.DS_Store
-Thumbs.db
+- **Multi-User Support**: Each user has their own document space and conversation history
+- **File Management**: Upload, list, and delete documents with auto-indexing
+- **Conversational Memory**: Maintains context across conversation turns
+- **Session Management**: Up to 10 conversations per user with easy switching
+- **ChromaDB Integration**: Efficient vector storage and similarity search
+- **Clean UI**: ChatGPT-like interface built with Gradio
+- **Feedback System**: Rate assistant responses (good/neutral/bad)
+- **Secure Authentication**: Google OAuth with domain restrictions
 
-# Logs
-*.log
+## 🗃️ Architecture
 
-# Keep images folder but ignore temp files
-images/**/.DS_Store" > .gitignore
+### Modular Design
+- `constants.py` - Application constants and configuration
+- `config.py` - Environment configuration and validation
+- `auth.py` - Authentication and session management
+- `file_service.py` - File upload, storage, and management
+- `rag_service.py` - Vector storage and document retrieval
+- `chat_service.py` - Conversation management and RAG responses
+- `ui_service.py` - UI service layer (business logic)
+- `ui.py` - Gradio interface (pure UI)
+- `main.py` - FastAPI application entry point
 
-## 4. Initialize Git repository (if not already done)
-git init
+### Database Schema
+- `users` - User profiles and authentication
+- `conversations` - Chat sessions per user
+- `messages` - Individual messages with feedback
+- `user_documents` - File metadata and indexing status
 
-## 5. Add all files to Git (including images)
-git add .
-git add images/v1/*.png
+## 🚀 Quick Start
 
-## 6. Create initial commit
-git commit -m "Initial commit: Sevabot RAG Assistant
+1. **Clone and Setup**
+   ```bash
+   git clone <repository>
+   cd sevabot
+   pip install -r requirements.txt
+   ```
 
-- Multi-user document Q&A system
-- Google OAuth authentication  
-- RAG with ChromaDB and OpenAI
-- Gradio web interface
-- Feedback system and session management
-- Added screenshots for documentation"
+2. **Environment Configuration**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your credentials
+   ```
 
-## 7. Create GitHub repository
-# Go to GitHub.com and create a new repository named 'sevabot'
-# Do NOT initialize with README (we already have one)
-# Make it private for now
+3. **Database Setup**
+   - Create a Supabase project
+   - Run the SQL schema from `database_schema.sql`
+   - Add your Supabase credentials to `.env`
 
-## 8. Link your local repo to GitHub
-# Replace YOUR_USERNAME with your actual GitHub username
-git remote add origin https://github.com/YOUR_USERNAME/sevabot.git
+4. **Run Application**
+   ```bash
+   python main.py
+   ```
 
-## 9. Push to GitHub
-git branch -M main
-git push -u origin main
+5. **Access**
+   - Open http://localhost:8000
+   - Sign in with Google (domain-restricted)
+   - Upload documents and start chatting!
 
-## 10. Verify the upload
-# Go to https://github.com/YOUR_USERNAME/sevabot
-# You should see all your files uploaded including the images folder
-# Check that the README.md shows the screenshots properly
+## 📋 Requirements
 
-## 11. Set up GitHub Secrets (for deployment)
-# Go to your repo > Settings > Secrets and Variables > Actions
-# Add these secrets:
-# - SUPABASE_URL
-# - SUPABASE_KEY  
-# - SUPABASE_SERVICE_ROLE_KEY
-# - OPENAI_API_KEY
-# - COOKIE_SECRET
+### Environment Variables
+```bash
+# Required
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+OPENAI_API_KEY=your_openai_api_key
+COOKIE_SECRET=your_secure_random_string
+ALLOWED_DOMAIN=your_domain.com
 
-## 12. Future updates
-# When you make changes:
-git add .
-git commit -m "Description of your changes"
-git push
+# Optional (has defaults)
+CHAT_MODEL=gpt-4o
+EMBEDDING_MODEL=text-embedding-3-small
+CHUNK_SIZE=1000
+CHUNK_OVERLAP=200
+TOP_K=8
+```
 
-## Alternative: If you prefer SSH (more secure)
-# First set up SSH key with GitHub, then use:
-# git remote add origin git@github.com:YOUR_USERNAME/sevabot.git
+### Supported File Formats
+- `.txt` - Plain text files
+- `.md` - Markdown files  
+- `.pdf` - PDF documents
+- `.docx` - Word documents
+
+## 🎯 Usage
+
+### File Management
+1. Navigate to "File Manager" tab
+2. Upload documents (auto-indexed into ChromaDB)
+3. View file status and chunk counts
+4. Delete files as needed
+
+### Chat Interface
+1. Create new conversations (max 10 per user)
+2. Ask questions about uploaded documents
+3. Switch between conversation sessions
+4. Provide feedback on responses
+
+### Admin Features
+- Health check: `/health`
+- API status: `/api/status`
+- Admin docs: `/admin/docs`
+
+## 🔧 Configuration
+
+### User Limits
+- **Max Sessions**: 10 conversations per user
+- **Max File Size**: 10MB per file
+- **History Context**: 10 recent conversation turns
+- **Search Results**: 8 top relevant chunks
+
+### RAG Behavior
+- **Accuracy Focused**: Says "I don't know" when information isn't available
+- **Source Attribution**: Mentions document names in responses
+- **Conversational**: Maintains context across turns
+- **Multi-Document**: Searches across all user's uploaded documents
+
+## 🛠️ Development
+
+### Adding New Features
+1. **Backend Logic**: Add to appropriate service files
+2. **UI Components**: Modify `ui.py` 
+3. **Database Changes**: Update `database_schema.sql`
+4. **Configuration**: Add to `constants.py` or `config.py`
+
+### React Migration Ready
+- UI logic isolated in `ui.py`
+- All business logic in service layers
+- Clean API boundaries
+- RESTful patterns
+
+## 🔒 Security
+
+- **Domain Restriction**: Only allowed email domains can register
+- **Row Level Security**: Users can only access their own data
+- **Session Management**: Secure cookie-based authentication
+- **File Isolation**: User documents stored in separate directories
+
+## 📊 Monitoring
+
+### Health Endpoints
+- `/health` - Service status
+- `/api/status` - Feature and limits info
+
+### Logging
+- Clean logs without deprecation warnings
+- User actions and errors tracked
+- File operations logged
+
+## 🎨 UI Features
+
+- **ChatGPT-like Design**: Clean, professional interface
+- **Responsive Layout**: Works on desktop and mobile
+- **Real-time Updates**: File uploads and indexing status
+- **Session Management**: Easy conversation switching
+- **Status Feedback**: Clear success/error messages
+
+## 🚦 Limits and Warnings
+
+- **Session Limit Warning**: Prompts to delete old conversations
+- **File Size Validation**: Prevents large file uploads
+- **Format Validation**: Only supported file types allowed
+- **Domain Restriction**: Clear error for unauthorized domains
+
+## 🔄 Migration Notes
+
+When migrating to React:
+1. Keep all `*_service.py` files unchanged
+2. Replace `ui.py` with React components
+3. Add REST API endpoints in `main.py`
+4. Use existing service layer methods
+
+## 📄 License
+
+[Your License Here]
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create feature branch
+3. Make changes in appropriate service files
+4. Test thoroughly
+5. Submit pull request
+
+---
+
+**Note**: This is a naive RAG implementation focused on accuracy and simplicity. For production use, consider adding rate limiting, advanced error handling, and monitoring.
