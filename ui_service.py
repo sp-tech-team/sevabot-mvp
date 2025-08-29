@@ -135,7 +135,7 @@ class UIService:
             return (history or []) + [[message, error_msg]], "", conversation_id, gr.update(), error_msg
     
     def load_conversation(self, conversation_id: Optional[str]) -> Tuple[List[List[str]], Optional[str], str]:
-        """Load conversation history with feedback restored"""
+        """Load conversation history with proper feedback restoration"""
         if not conversation_id:
             return [], None, ""
         
@@ -166,27 +166,40 @@ class UIService:
                 elif msg["role"] == "assistant" and user_msg:
                     assistant_content = msg["content"]
                     
-                    # Append feedback if it exists (handle both formats)
+                    # Process feedback if it exists
                     if msg.get("feedback"):
-                        feedback_data = str(msg["feedback"])
+                        feedback_data = str(msg["feedback"]).strip()
                         
-                        # Check if it's the new format with remarks (contains ":")
-                        if ":" in feedback_data:
-                            parts = feedback_data.split(":", 1)
-                            feedback_type = parts[0].strip()
-                            remarks = parts[1].strip() if len(parts) > 1 else ""
-                            feedback_emoji = {"good": "👍", "neutral": "😐", "bad": "👎"}
+                        if feedback_data and feedback_data != "None":
+                            # Parse feedback - handle both new format (type:remarks) and old format (just type)
+                            if ":" in feedback_data:
+                                try:
+                                    feedback_parts = feedback_data.split(":", 1)
+                                    feedback_type = feedback_parts[0].strip().lower()
+                                    remarks = feedback_parts[1].strip() if len(feedback_parts) > 1 else ""
+                                except:
+                                    feedback_type = feedback_data.lower()
+                                    remarks = ""
+                            else:
+                                feedback_type = feedback_data.lower()
+                                remarks = ""
+                            
+                            # Get emoji for feedback type
+                            feedback_emoji = {
+                                "good": "👍", 
+                                "neutral": "😐", 
+                                "bad": "👎"
+                            }
+                            
                             emoji = feedback_emoji.get(feedback_type, "")
                             feedback_display = f"{emoji} {feedback_type.title()}"
+                            
+                            # Add remarks if they exist
                             if remarks:
                                 feedback_display += f" - {remarks}"
-                        else:
-                            # Old format - just the feedback type
-                            feedback_emoji = {"good": "👍", "neutral": "😐", "bad": "👎"}
-                            emoji = feedback_emoji.get(feedback_data, "")
-                            feedback_display = f"{emoji} {feedback_data.title()}"
-                        
-                        assistant_content += f"\n\n*[Feedback: {feedback_display}]*"
+                            
+                            # Append feedback to assistant content
+                            assistant_content += f"\n\n*[Feedback: {feedback_display}]*"
                     
                     gradio_history.append([user_msg, assistant_content])
                     user_msg = None
@@ -195,10 +208,10 @@ class UIService:
             
         except Exception as e:
             print(f"Error loading conversation: {e}")
-            # Fallback to original method
+            # Fallback to original method without feedback
             history = chat_service.get_conversation_history(conversation_id)
             gradio_history = [[user_msg, assistant_msg] for user_msg, assistant_msg in history]
-            return gradio_history, conversation_id, f"✅ Loaded conversation with {len(gradio_history)} messages"
+            return gradio_history, conversation_id, f"✅ Loaded conversation with {len(gradio_history)} messages (feedback unavailable)"
     
     def create_new_chat(self) -> Tuple[List[List[str]], Optional[str], gr.update, str]:
         """Create new chat with personalized greeting"""
@@ -249,23 +262,27 @@ class UIService:
     # ========== FILE METHODS ==========
     
     def upload_files_with_progress(self, files) -> Tuple[gr.update, str, gr.update]:
-        """Upload files with progress updates"""
+        """Upload files with enhanced error handling and progress updates"""
         if not files:
             return gr.update(), "⚠️ No files selected", gr.update()
 
         try:
+            # Normalize file paths
             file_paths = []
             if isinstance(files, list):
                 for file_item in files:
-                    if hasattr(file_item, 'name'):
+                    if hasattr(file_item, 'name') and file_item.name:
                         file_paths.append(file_item.name)
-                    else:
-                        file_paths.append(str(file_item))
+                    elif isinstance(file_item, str) and file_item:
+                        file_paths.append(file_item)
             else:
-                if hasattr(files, 'name'):
+                if hasattr(files, 'name') and files.name:
                     file_paths = [files.name]
-                else:
-                    file_paths = [str(files)]
+                elif isinstance(files, str) and files:
+                    file_paths = [files]
+
+            if not file_paths:
+                return gr.update(), "⚠️ No valid file paths found", gr.update()
 
             uploaded_count = 0
             total_chunks = 0
@@ -273,43 +290,66 @@ class UIService:
             status_updates = []
 
             for i, file_path in enumerate(file_paths):
-                if not file_path:
+                if not file_path or not os.path.exists(file_path):
+                    errors.append(f"File not found: {file_path}")
                     continue
                     
                 file_name = os.path.basename(file_path)
                 status_updates.append(f"📤 Processing file {i+1}/{len(file_paths)}: {file_name}")
                 
                 try:
+                    # Upload file
                     success, message = file_service.upload_file(self.current_user["email"], file_path)
                     
                     if success:
                         uploaded_count += 1
                         status_updates.append(f"✅ Uploaded: {file_name}")
                         
-                        index_success, index_msg, chunks_count = rag_service.index_user_document(
-                            self.current_user["email"], file_name
-                        )
+                        # Index document with retries
+                        index_success = False
+                        retry_count = 0
+                        max_retries = 3
                         
-                        if index_success:
-                            total_chunks += chunks_count
-                            status_updates.append(f"🔍 Indexed: {file_name} ({chunks_count} chunks)")
-                        else:
-                            errors.append(f"{file_name}: indexing failed")
-                            status_updates.append(f"⚠️ Indexing failed: {file_name}")
+                        while retry_count < max_retries and not index_success:
+                            try:
+                                index_success, index_msg, chunks_count = rag_service.index_user_document(
+                                    self.current_user["email"], file_name
+                                )
+                                
+                                if index_success:
+                                    total_chunks += chunks_count
+                                    status_updates.append(f"🔍 Indexed: {file_name} ({chunks_count} chunks)")
+                                else:
+                                    retry_count += 1
+                                    if retry_count < max_retries:
+                                        status_updates.append(f"⏳ Retrying indexing for {file_name} (attempt {retry_count + 1})")
+                                    else:
+                                        errors.append(f"{file_name}: indexing failed after {max_retries} attempts - {index_msg}")
+                                        status_updates.append(f"❌ Indexing failed: {file_name}")
+                                        
+                            except Exception as index_error:
+                                retry_count += 1
+                                if retry_count < max_retries:
+                                    status_updates.append(f"⏳ Retrying indexing for {file_name} due to error (attempt {retry_count + 1})")
+                                else:
+                                    errors.append(f"{file_name}: indexing error after {max_retries} attempts - {str(index_error)}")
+                                    status_updates.append(f"❌ Indexing error: {file_name}")
                     else:
                         errors.append(f"{file_name}: {message}")
-                        status_updates.append(f"⚠️ Failed: {file_name} - {message}")
+                        status_updates.append(f"❌ Upload failed: {file_name} - {message}")
                         
                 except Exception as e:
                     errors.append(f"{file_name}: {str(e)}")
-                    status_updates.append(f"⚠️ Error: {file_name} - {str(e)}")
+                    status_updates.append(f"❌ Error: {file_name} - {str(e)}")
 
+            # Create final status message
             final_status = "\n".join(status_updates)
             if uploaded_count > 0:
                 final_status += f"\n\n🎉 COMPLETED: {uploaded_count} file(s) uploaded with {total_chunks} total chunks"
             if errors:
-                final_status += f"\n⚠️ Errors: {len(errors)} files failed"
+                final_status += f"\n\n⚠️ ERRORS ({len(errors)} files failed):\n" + "\n".join([f"• {error}" for error in errors])
 
+            # Update file list
             files_list = self.get_file_list()
             files_update = gr.update(value=files_list)
             choices = [row[0] for row in files_list] if files_list else []
@@ -318,7 +358,7 @@ class UIService:
             return files_update, final_status, choices_update
             
         except Exception as e:
-            return gr.update(), f"⚠️ Upload error: {str(e)}", gr.update()
+            return gr.update(), f"⚠️ Upload system error: {str(e)}", gr.update()
 
     def delete_files_with_progress(self, selected_files: List[str]) -> Tuple[gr.update, str, gr.update]:
         """Delete files with progress updates"""
@@ -334,9 +374,11 @@ class UIService:
                 status_updates.append(f"🗑️ Deleting file {i+1}/{len(selected_files)}: {file_name}")
                 
                 try:
+                    # Remove from vector store first
                     rag_service.remove_user_document(self.current_user["email"], file_name)
                     status_updates.append(f"🔍 Removed from index: {file_name}")
                     
+                    # Delete file
                     success, message = file_service.delete_file(self.current_user["email"], file_name)
                     
                     if success:
@@ -344,17 +386,17 @@ class UIService:
                         status_updates.append(f"✅ Deleted: {file_name}")
                     else:
                         errors.append(f"{file_name}: {message}")
-                        status_updates.append(f"⚠️ Failed: {file_name} - {message}")
+                        status_updates.append(f"❌ Failed: {file_name} - {message}")
                         
                 except Exception as e:
                     errors.append(f"{file_name}: {str(e)}")
-                    status_updates.append(f"⚠️ Error: {file_name} - {str(e)}")
+                    status_updates.append(f"❌ Error: {file_name} - {str(e)}")
 
             final_status = "\n".join(status_updates)
             if deleted_count > 0:
                 final_status += f"\n\n🎉 COMPLETED: {deleted_count} file(s) deleted successfully"
             if errors:
-                final_status += f"\n⚠️ Errors: {len(errors)} files failed"
+                final_status += f"\n\n⚠️ ERRORS ({len(errors)} files failed):\n" + "\n".join([f"• {error}" for error in errors])
 
             files_list = self.get_file_list()
             files_update = gr.update(value=files_list)
@@ -367,7 +409,7 @@ class UIService:
             return gr.update(), f"⚠️ Delete error: {str(e)}", gr.update()
     
     def get_file_list(self) -> List[List[Any]]:
-        """Get formatted file list for display"""
+        """Get formatted file list for display with enhanced status information"""
         try:
             files = file_service.list_user_files(self.current_user["email"])
             
@@ -377,7 +419,11 @@ class UIService:
                 if chunks_count > 0:
                     status = "✅ Indexed"
                 else:
-                    status = "⏳ Pending"
+                    # More informative pending status
+                    if file_info["file_name"].lower().endswith('.pdf'):
+                        status = "⚠️ Pending (May be image-based PDF - see guidelines above)"
+                    else:
+                        status = "⏳ Pending (Processing failed)"
                 
                 file_list.append([
                     file_info["file_name"],
@@ -411,7 +457,7 @@ class UIService:
         return random.choice(base_greetings)
     
     def reindex_pending_files(self) -> str:
-        """Re-index files that show as pending"""
+        """Re-index files that show as pending with enhanced error handling"""
         try:
             files = file_service.list_user_files(self.current_user["email"])
             pending_files = [f for f in files if f.get("chunks_count", 0) == 0]
@@ -425,19 +471,33 @@ class UIService:
             for file_info in pending_files:
                 file_name = file_info["file_name"]
                 try:
-                    success, msg, chunks = rag_service.index_user_document(
-                        self.current_user["email"], file_name
-                    )
-                    if success:
-                        reindexed += 1
-                    else:
-                        errors.append(f"{file_name}: {msg}")
+                    # Multiple retry attempts for problematic files
+                    success = False
+                    last_error = None
+                    
+                    for attempt in range(3):
+                        try:
+                            success, msg, chunks = rag_service.index_user_document(
+                                self.current_user["email"], file_name
+                            )
+                            if success:
+                                reindexed += 1
+                                break
+                            else:
+                                last_error = msg
+                        except Exception as e:
+                            last_error = str(e)
+                            continue
+                    
+                    if not success:
+                        errors.append(f"{file_name}: {last_error}")
+                        
                 except Exception as e:
                     errors.append(f"{file_name}: {str(e)}")
             
             result = f"✅ Re-indexed {reindexed} files"
             if errors:
-                result += f"\n⚠️ Errors: {'; '.join(errors)}"
+                result += f"\n\n⚠️ ERRORS ({len(errors)} files failed):\n" + "\n".join([f"• {error}" for error in errors])
             
             return result
             

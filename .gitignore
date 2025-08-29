@@ -16,3 +16,7 @@ secrets.json
 
 # Logs
 *.log
+
+# Test files
+test_files/
+user_documents/

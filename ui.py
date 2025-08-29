@@ -1,4 +1,4 @@
-# ui.py - Clean UI with all fixes implemented
+# ui.py - Clean UI with enhanced feedback handling
 from fastapi import Request, FastAPI
 from fastapi.responses import RedirectResponse, HTMLResponse
 import gradio as gr
@@ -32,7 +32,7 @@ def create_landing_page_html() -> str:
     """
 
 def create_gradio_interface():
-    """Create Gradio interface with all fixes"""
+    """Create Gradio interface with enhanced feedback handling"""
     
     with gr.Blocks(theme=gr.themes.Soft(), title="Welcome to Sevabot", css="""
         .logout-btn { background-color: #dc2626 !important; color: white !important; }
@@ -89,7 +89,7 @@ def create_gradio_interface():
                             elem_classes="chat-interface"
                         )
                         
-                        # Feedback row (initially hidden)
+                        # Enhanced feedback row
                         with gr.Column(visible=False) as feedback_row:
                             gr.Markdown("**Please rate this response to continue:**")
                             with gr.Row():
@@ -120,6 +120,16 @@ def create_gradio_interface():
             # File Manager Tab
             with gr.TabItem("📁 File Manager"):
                 gr.Markdown("## 📁 Document Management")
+                
+                # Add info box about PDF requirements
+                gr.Markdown("""
+                **📋 File Upload Guidelines:**
+                - Supported formats: `.txt`, `.md`, `.pdf`, `.docx` (max 10MB)
+                - **PDF Note**: Text-searchable PDFs work best. If your PDF is scanned/image-based, convert it first using:
+                  - Online OCR tools (SmallPDF, ILovePDF, etc.)
+                  - Google Drive (upload → right-click → Open with Google Docs → download as PDF)
+                  - Adobe Acrobat Pro (Save As → Searchable Image)
+                """)
                 
                 with gr.Row():
                     # Upload section
@@ -188,7 +198,7 @@ def create_gradio_interface():
 
         demo.load(fn=safe_load_file_data, outputs=[files_table, selected_files])
         
-        # Chat events
+        # Enhanced chat events
         def handle_send_message(message, history, conv_id):
             if not message.strip():
                 return history, "", conv_id, gr.update(), "", gr.update(interactive=True), gr.update(visible=False), None
@@ -204,29 +214,40 @@ def create_gradio_interface():
             outputs=[chatbot, message_input, current_conversation_id, sessions_radio, action_status, message_input, feedback_row, last_assistant_message_id]
         )
         
-        # Enhanced feedback handlers
+        # Enhanced feedback handlers with proper persistence
         def handle_feedback(feedback_type, message_id, remarks, history):
-            if message_id:
-                # Store feedback in database
+            if not message_id:
+                return gr.update(interactive=True), gr.update(visible=False), history, ""
+            
+            try:
+                # Prepare feedback data with remarks
                 feedback_data = feedback_type
                 if remarks and remarks.strip():
                     feedback_data = f"{feedback_type}:{remarks.strip()}"
                 
+                # Store feedback in database
                 success = ui_service.submit_feedback(message_id, feedback_data)
-                print(f"Feedback stored: {feedback_data} (success: {success})")
+                print(f"Feedback stored: {feedback_data} for message {message_id} (success: {success})")
                 
-                # Update chat display
+                # Update chat display with feedback
                 if history and len(history) > 0:
                     last_exchange = history[-1]
                     if len(last_exchange) >= 2:
+                        # Create feedback display
                         feedback_emoji = {"good": "👍", "neutral": "😐", "bad": "👎"}[feedback_type]
                         feedback_display = f"{feedback_emoji} {feedback_type.title()}"
                         if remarks and remarks.strip():
                             feedback_display += f" - {remarks.strip()}"
+                        
+                        # Update the assistant's response with feedback
                         updated_response = last_exchange[1] + f"\n\n*[Feedback: {feedback_display}]*"
                         history[-1] = [last_exchange[0], updated_response]
-            
-            return gr.update(interactive=True), gr.update(visible=False), history, ""
+                
+                return gr.update(interactive=True), gr.update(visible=False), history, ""
+                
+            except Exception as e:
+                print(f"Error handling feedback: {e}")
+                return gr.update(interactive=True), gr.update(visible=False), history, ""
         
         feedback_good.click(
             fn=lambda msg_id, remarks, hist: handle_feedback("good", msg_id, remarks, hist),
@@ -269,11 +290,11 @@ def create_gradio_interface():
             outputs=[chatbot, current_conversation_id, sessions_radio, action_status]
         )
         
-        # File operations
+        # File operations with better error handling
         def handle_upload_start(files):
             if not files:
-                return gr.update(visible=True, value="❌ No files selected")
-            return gr.update(visible=True, value="🚀 Starting upload...")
+                return gr.update(visible=True, value="No files selected")
+            return gr.update(visible=True, value="Starting upload...")
 
         def handle_upload_complete(files):
             files_update, status, choices_update = ui_service.upload_files_with_progress(files)
@@ -285,8 +306,8 @@ def create_gradio_interface():
         
         def handle_delete_start(selected):
             if not selected:
-                return gr.update(visible=True, value="❌ No files selected")
-            return gr.update(visible=True, value="🗑️ Starting deletion...")
+                return gr.update(visible=True, value="No files selected")
+            return gr.update(visible=True, value="Starting deletion...")
 
         def handle_delete_complete(selected):
             files_update, status, choices_update = ui_service.delete_files_with_progress(selected)
