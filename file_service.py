@@ -81,11 +81,10 @@ class FileService:
             if not is_valid:
                 return False, error_msg
             
-            # PRE-VALIDATE PDF CONTENT before uploading
+            # PRE-VALIDATE PDF CONTENT before uploading (optional check)
             if file_name.lower().endswith('.pdf'):
-                is_processable, pdf_error = self._validate_pdf_content(source_path)
-                if not is_processable:
-                    return False, pdf_error
+                print(f"PDF detected: {file_name} - will attempt OCR if needed during indexing")
+                # Note: We now allow all PDFs through since OCR can handle image-based ones
             
             # Get user directory and target path
             user_path = self.get_user_documents_path(user_email)

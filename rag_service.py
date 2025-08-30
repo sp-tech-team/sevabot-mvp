@@ -116,22 +116,49 @@ class RAGService:
                     except Exception as e:
                         print(f"PyMuPDFLoader failed: {e}")
                 
-                # 3. If still no content, try PDFMinerLoader as final fallback
+                # 3. If still no content, try OCR as final fallback
                 if not content_found:
-                    print(f"Trying PDFMinerLoader for: {file_path_obj}")
+                    print(f"Trying OCR extraction for: {file_path_obj}")
                     try:
-                        from langchain_community.document_loaders import PDFMinerLoader
-                        loader = PDFMinerLoader(str(file_path_obj))
-                        docs = loader.load()
+                        import easyocr
+                        import fitz  # pymupdf for image extraction
                         
-                        if docs and any(doc.page_content.strip() and len(doc.page_content.strip()) > 50 for doc in docs):
+                        reader = easyocr.Reader(['en'], verbose=False)
+                        doc = fitz.open(str(file_path_obj))
+                        
+                        extracted_text = ""
+                        for page_num, page in enumerate(doc):
+                            try:
+                                # Convert page to image
+                                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x scaling for better OCR
+                                img_data = pix.tobytes("png")
+                                
+                                # Extract text using OCR
+                                results = reader.readtext(img_data, paragraph=True)
+                                page_text = "\n".join([item[1] for item in results if item[1].strip()])
+                                
+                                if page_text.strip():
+                                    extracted_text += f"\n\nPage {page_num + 1}:\n{page_text}"
+                                    print(f"OCR Page {page_num + 1}: extracted {len(page_text)} characters")
+                                    
+                            except Exception as page_error:
+                                print(f"OCR failed for page {page_num + 1}: {page_error}")
+                        
+                        doc.close()
+                        
+                        if extracted_text.strip():
+                            from langchain.schema import Document
+                            docs = [Document(page_content=extracted_text.strip())]
                             content_found = True
-                            print(f"Successfully extracted with PDFMinerLoader")
+                            print(f"Successfully extracted text using OCR: {len(extracted_text)} characters")
+                        
+                    except ImportError:
+                        print("easyocr not installed. Install with: pip install easyocr")
                     except Exception as e:
-                        print(f"PDFMinerLoader failed: {e}")
+                        print(f"OCR processing failed: {e}")
                 
                 if not content_found:
-                    print(f"All LangChain PDF loaders failed for: {file_path_obj}")
+                    print(f"All extraction methods failed for: {file_path_obj}")
                     return []
                 
             elif file_path_obj.suffix.lower() == '.docx':
