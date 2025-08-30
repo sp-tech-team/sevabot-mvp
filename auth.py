@@ -1,4 +1,4 @@
-# auth.py - Authentication module with OAuth state fix
+# auth.py - Authentication module with dynamic URL support
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse
 from supabase import create_client, Client
@@ -26,22 +26,23 @@ def ensure_users_table():
         admin_supabase.table("users").select("id").limit(1).execute()
         return True
     except Exception:
-        print("⚠️ Users table not accessible. Please run the database schema.")
+        print("Users table not accessible. Please run the database schema.")
         return False
 
 ensure_users_table()
 
 @router.get("/login")
 def login():
-    """Initiate Google OAuth login with correct redirect"""
+    """Initiate Google OAuth login with dynamic redirect URI"""
     try:
         provider = "google"
-        redirect_to = REDIRECT_URI
+        redirect_to = REDIRECT_URI  # This comes from environment variables now
         
-        # Use the correct Supabase OAuth URL without custom state
+        # Use the correct Supabase OAuth URL
         url = f"{SUPABASE_URL}/auth/v1/authorize?provider={provider}&redirect_to={redirect_to}"
         
         print(f"DEBUG: Initiating OAuth to: {url}")
+        print(f"DEBUG: Redirect URI configured as: {redirect_to}")
         return RedirectResponse(url)
         
     except Exception as e:
@@ -66,9 +67,9 @@ def auth_callback(request: Request):
             <!doctype html>
             <html>
               <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-                <h2>🚫 Authentication Error</h2>
+                <h2>Authentication Error</h2>
                 <p>There was an issue with the sign-in process: {error_desc.replace('+', ' ')}</p>
-                <p><a href="/" style="color: #6a0dad; text-decoration: none;">← Try signing in again</a></p>
+                <p><a href="/" style="color: #6a0dad; text-decoration: none;">Try signing in again</a></p>
               </body>
             </html>
             """
@@ -79,7 +80,7 @@ def auth_callback(request: Request):
         <!doctype html>
         <html>
           <body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-            <h2>🔄 Processing login...</h2>
+            <h2>Processing login...</h2>
             <p>Please wait while we complete your authentication.</p>
             <script>
               (function() {

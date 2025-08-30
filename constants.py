@@ -1,8 +1,8 @@
 # constants.py - Application Constants
 
-# App Configuration
-DEFAULT_REDIRECT_URI = "http://localhost:8000/auth/callback"
-DEFAULT_APP_HOST = "http://localhost:8000"
+# App Configuration - Development defaults (will be overridden by environment variables in production)
+DEFAULT_REDIRECT_URI = "http://localhost:8001/auth/callback"
+DEFAULT_APP_HOST = "http://localhost:8001"
 DEFAULT_ALLOWED_DOMAIN = "sadhguru.org"
 DEFAULT_COOKIE_NAME = "sevabot_session"
 
@@ -29,16 +29,16 @@ SUPPORTED_EXTENSIONS = ['.txt', '.md', '.pdf', '.docx']
 MAX_FILE_SIZE_MB = 10
 
 NAMASKARAM_GREETINGS = [
-    "🙏 Namaskaram! Ready to dive into your digital dharma library?",
-    "🙏 Namaskaram! Let's explore what wisdom your documents hold today!",
-    "🙏 Namaskaram! Your seva companion is here - what shall we discover?",
-    "🙏 Namaskaram! Time to unlock some knowledge karma from your files!",
-    "🙏 Namaskaram! I'm here for your document darshan - ask away!",
-    "🙏 Namaskaram! Let's turn your PDFs into prasadam of wisdom!",
-    "🙏 Namaskaram! Ready for some digital satsang with your documents?",
-    "🙏 Namaskaram! Your friendly document guru is at your seva!",
-    "🙏 Namaskaram! What treasures shall we find in your knowledge vault today?",
-    "🙏 Namaskaram! Time for some enlightening document exploration together!"
+    "Namaskaram! Ready to dive into your digital dharma library?",
+    "Namaskaram! Let's explore what wisdom your documents hold today!",
+    "Namaskaram! Your seva companion is here - what shall we discover?",
+    "Namaskaram! Time to unlock some knowledge karma from your files!",
+    "Namaskaram! I'm here for your document darshan - ask away!",
+    "Namaskaram! Let's turn your PDFs into prasadam of wisdom!",
+    "Namaskaram! Ready for some digital satsang with your documents?",
+    "Namaskaram! Your friendly document guru is at your seva!",
+    "Namaskaram! What treasures shall we find in your knowledge vault today?",
+    "Namaskaram! Time for some enlightening document exploration together!"
 ]
 
 # System Prompt
