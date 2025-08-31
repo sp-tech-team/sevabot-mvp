@@ -85,7 +85,7 @@ jobs:
         echo "Creating Nginx configuration..."
         cat > /tmp/sevabot_nginx << 'EOL'
         server {
-            listen 80;
+            listen 8080;
             server_name _;
             
             # Increase client body size for file uploads
