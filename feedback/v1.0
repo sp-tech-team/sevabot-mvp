@@ -10,10 +10,10 @@ some improvements to be made:
 ## UI:
 1) login page to have a central box, and the elements to be placed in the middle of window
 2) title still doesn't say "Welcome to Sevabot, Swapnil!", just Sevabot
-5) the window is not scrollable or within 100% window size. optimise the space to make it look like chatgpt, seamless box
+5) ✅  the window is not scrollable or within 100% window size. optimise the space to make it look like chatgpt, seamless box
 6) the chat/file manager and space between that and welcome title is too much. also chat/FM size is small, they should be atleast normal, mabye in button light format.
 10) change vvvv.supabase.co to Sevabot during google login
-12) mention file extensions that are allowed, and raise a warnng if the extension is not allowed.
+12) mention file extensions that are allowed, and raise a warning if the extension is not allowed.
 13) upload/delete logs to be update file-wise, and not bulk logging.
 
 ## Good to have:
@@ -23,3 +23,5 @@ some improvements to be made:
 ## stretch:
 11) see if excel sheet can be uploaded
 16) ✅ there are 2 folders, rag-documents and user-documents. see if it happens again.
+
+3) the width is restored, but the chat window is quite small. in terms of height. do you think you can move chat and file manager tab buttons in the same section as left of chat which includes sessions history and new chat/delete buttons? this way you can increase the height of chat. Also move logout button in bottom right.   

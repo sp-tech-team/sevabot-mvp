@@ -1,4 +1,4 @@
-# rag_service.py - Enhanced RAG service with better file processing
+# rag_service.py - Enhanced RAG service with cleanup functionality
 import os
 import warnings
 from pathlib import Path
@@ -16,15 +16,17 @@ from langchain_community.document_loaders import (
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
 from langchain.schema import Document
+from fastapi import APIRouter
 
 from config import (
     RAG_INDEX_PATH, OPENAI_API_KEY, EMBEDDING_MODEL,
-    CHUNK_SIZE, CHUNK_OVERLAP, TOP_K
+    CHUNK_SIZE, CHUNK_OVERLAP, TOP_K, RAG_DOCUMENTS_PATH,
+    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 )
 from file_service import file_service
 
 class RAGService:
-    """Enhanced RAG service with better error handling and file processing"""
+    """Enhanced RAG service with cleanup functionality"""
     
     def __init__(self):
         self.index_path = Path(RAG_INDEX_PATH)
@@ -60,7 +62,7 @@ class RAGService:
         return self._user_vectorstores[user_email]
     
     def load_document(self, file_path: str) -> List[Document]:
-        """Load document using appropriate loader with enhanced error handling"""
+        """Load document with enhanced error handling"""
         try:
             file_path_obj = Path(file_path)
             
@@ -68,7 +70,6 @@ class RAGService:
                 print(f"File not found: {file_path_obj}")
                 return []
             
-            # Check file size
             file_size = file_path_obj.stat().st_size
             if file_size == 0:
                 print(f"File is empty: {file_path_obj}")
@@ -78,68 +79,54 @@ class RAGService:
             
             docs = []
             
-            if file_path_obj.suffix.lower() == '.txt':
-                loader = TextLoader(str(file_path_obj), encoding='utf-8', autodetect_encoding=True)
-                docs = loader.load()
-                
-            elif file_path_obj.suffix.lower() == '.md':
-                # Use TextLoader for markdown files instead of UnstructuredMarkdownLoader
+            if file_path_obj.suffix.lower() in ['.txt', '.md']:
                 loader = TextLoader(str(file_path_obj), encoding='utf-8', autodetect_encoding=True)
                 docs = loader.load()
                 
             elif file_path_obj.suffix.lower() == '.pdf':
-                # Try multiple LangChain PDF loaders in order
+                # Try multiple PDF loaders
                 content_found = False
-                docs = []
                 
-                # 1. First try PyPDFLoader (fastest for text-based PDFs)
+                # PyPDFLoader first
                 try:
                     loader = PyPDFLoader(str(file_path_obj))
                     docs = loader.load()
-                    
                     if docs and any(doc.page_content.strip() and len(doc.page_content.strip()) > 50 for doc in docs):
                         content_found = True
-                        print(f"Successfully extracted with PyPDFLoader")
+                        print(f"Extracted with PyPDFLoader")
                 except Exception as e:
                     print(f"PyPDFLoader failed: {e}")
                 
-                # 2. If PyPDFLoader failed, try PyMuPDFLoader (better for complex/image PDFs)
+                # PyMuPDFLoader as fallback
                 if not content_found:
-                    print(f"Trying PyMuPDFLoader for: {file_path_obj}")
                     try:
                         loader = PyMuPDFLoader(str(file_path_obj))
                         docs = loader.load()
-                        
                         if docs and any(doc.page_content.strip() and len(doc.page_content.strip()) > 50 for doc in docs):
                             content_found = True
-                            print(f"Successfully extracted with PyMuPDFLoader")
+                            print(f"Extracted with PyMuPDFLoader")
                     except Exception as e:
                         print(f"PyMuPDFLoader failed: {e}")
                 
-                # 3. If still no content, try OCR as final fallback
+                # OCR as final fallback
                 if not content_found:
-                    print(f"Trying OCR extraction for: {file_path_obj}")
                     try:
                         import easyocr
-                        import fitz  # pymupdf for image extraction
+                        import fitz
                         
                         reader = easyocr.Reader(['en'], verbose=False)
                         doc = fitz.open(str(file_path_obj))
-                        
                         extracted_text = ""
+                        
                         for page_num, page in enumerate(doc):
                             try:
-                                # Convert page to image
-                                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x scaling for better OCR
+                                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
                                 img_data = pix.tobytes("png")
-                                
-                                # Extract text using OCR
                                 results = reader.readtext(img_data, paragraph=True)
                                 page_text = "\n".join([item[1] for item in results if item[1].strip()])
                                 
                                 if page_text.strip():
                                     extracted_text += f"\n\nPage {page_num + 1}:\n{page_text}"
-                                    print(f"OCR Page {page_num + 1}: extracted {len(page_text)} characters")
                                     
                             except Exception as page_error:
                                 print(f"OCR failed for page {page_num + 1}: {page_error}")
@@ -147,13 +134,12 @@ class RAGService:
                         doc.close()
                         
                         if extracted_text.strip():
-                            from langchain.schema import Document
                             docs = [Document(page_content=extracted_text.strip())]
                             content_found = True
-                            print(f"Successfully extracted text using OCR: {len(extracted_text)} characters")
+                            print(f"Extracted text using OCR: {len(extracted_text)} characters")
                         
                     except ImportError:
-                        print("easyocr not installed. Install with: pip install easyocr")
+                        print("easyocr not installed")
                     except Exception as e:
                         print(f"OCR processing failed: {e}")
                 
@@ -164,20 +150,17 @@ class RAGService:
             elif file_path_obj.suffix.lower() == '.docx':
                 loader = Docx2txtLoader(str(file_path_obj))
                 docs = loader.load()
-                
             else:
                 print(f"Unsupported file type: {file_path_obj.suffix}")
                 return []
             
             if not docs:
-                print(f"No content extracted from: {file_path_obj}")
                 return []
             
-            # Validate document content
+            # Add metadata
             valid_docs = []
             for doc in docs:
                 if doc.page_content and len(doc.page_content.strip()) > 0:
-                    # Add comprehensive metadata
                     doc.metadata.update({
                         'source': file_path_obj.name,
                         'file_name': file_path_obj.name,
@@ -188,33 +171,15 @@ class RAGService:
                     })
                     valid_docs.append(doc)
             
-            print(f"Successfully loaded {len(valid_docs)} valid documents from {file_path_obj.name}")
+            print(f"Loaded {len(valid_docs)} valid documents from {file_path_obj.name}")
             return valid_docs
-            
-        except UnicodeDecodeError as e:
-            print(f"Encoding error loading {file_path}: {e}")
-            # Try with different encodings
-            try:
-                if file_path_obj.suffix.lower() == '.txt':
-                    for encoding in ['utf-8', 'latin-1', 'cp1252']:
-                        try:
-                            loader = TextLoader(str(file_path_obj), encoding=encoding)
-                            docs = loader.load()
-                            if docs:
-                                print(f"Successfully loaded with {encoding} encoding")
-                                return docs
-                        except:
-                            continue
-            except:
-                pass
-            return []
             
         except Exception as e:
             print(f"Error loading document {file_path}: {e}")
             return []
     
     def index_user_document(self, user_email: str, file_name: str) -> Tuple[bool, str, int]:
-        """Index a document with comprehensive error handling and retry logic"""
+        """Index document with retry logic"""
         try:
             user_path = file_service.get_user_documents_path(user_email)
             file_path = user_path / file_name
@@ -222,35 +187,23 @@ class RAGService:
             if not file_path.exists():
                 return False, f"File {file_name} not found", 0
             
-            print(f"Starting indexing process for: {file_name}")
+            print(f"Indexing: {file_name}")
             
-            # Step 1: Load document
-            try:
-                docs = self.load_document(str(file_path))
-                if not docs:
-                    return False, f"Could not load or extract content from {file_name}", 0
-                    
-                print(f"Loaded {len(docs)} documents from {file_name}")
-                
-            except Exception as e:
-                return False, f"Error loading {file_name}: {str(e)}", 0
+            # Load document
+            docs = self.load_document(str(file_path))
+            if not docs:
+                return False, f"Could not extract content from {file_name}", 0
             
-            # Step 2: Split into chunks
-            try:
-                chunks = []
-                for doc in docs:
-                    doc_chunks = self.text_splitter.split_documents([doc])
-                    chunks.extend(doc_chunks)
-                
-                if not chunks:
-                    return False, f"No chunks created from {file_name} - content may be too short", 0
-                    
-                print(f"Created {len(chunks)} chunks from {file_name}")
-                
-            except Exception as e:
-                return False, f"Error processing {file_name}: {str(e)}", 0
+            # Split into chunks
+            chunks = []
+            for doc in docs:
+                doc_chunks = self.text_splitter.split_documents([doc])
+                chunks.extend(doc_chunks)
             
-            # Step 3: Add metadata to chunks
+            if not chunks:
+                return False, f"No chunks created from {file_name}", 0
+            
+            # Add metadata to chunks
             for i, chunk in enumerate(chunks):
                 chunk.metadata.update({
                     'chunk_index': i,
@@ -261,61 +214,34 @@ class RAGService:
                     'chunk_size': len(chunk.page_content)
                 })
             
-            # Step 4: Index chunks in batches
-            try:
-                vectorstore = self.get_user_vectorstore(user_email)
-                
-                # Process in smaller batches for large files
-                batch_size = 20 if len(chunks) > 100 else 50
-                successful_batches = 0
-                total_batches = (len(chunks) + batch_size - 1) // batch_size
-                
-                print(f"Processing {len(chunks)} chunks in {total_batches} batches of {batch_size}")
-                
-                for i in range(0, len(chunks), batch_size):
-                    batch = chunks[i:i+batch_size]
-                    batch_num = (i // batch_size) + 1
-                    
-                    try:
-                        # Add batch with retry logic
-                        retry_count = 0
-                        max_retries = 3
-                        batch_success = False
-                        
-                        while retry_count < max_retries and not batch_success:
-                            try:
-                                vectorstore.add_documents(batch)
-                                batch_success = True
-                                successful_batches += 1
-                                print(f"Successfully processed batch {batch_num}/{total_batches}")
-                                
-                            except Exception as batch_error:
-                                retry_count += 1
-                                if retry_count < max_retries:
-                                    print(f"Batch {batch_num} failed, retrying ({retry_count}/{max_retries}): {batch_error}")
-                                    time.sleep(1)  # Brief delay before retry
-                                else:
-                                    print(f"Batch {batch_num} failed after {max_retries} attempts: {batch_error}")
-                        
-                        if not batch_success:
-                            return False, f"Failed to index batch {batch_num} of {file_name} after {max_retries} attempts", 0
-                            
-                    except Exception as e:
-                        return False, f"Error indexing batch {batch_num} of {file_name}: {str(e)}", 0
-                
-                if successful_batches != total_batches:
-                    return False, f"Only {successful_batches}/{total_batches} batches indexed successfully", 0
-                
-            except Exception as e:
-                return False, f"Error indexing {file_name}: {str(e)}", 0
+            # Index chunks in batches
+            vectorstore = self.get_user_vectorstore(user_email)
+            batch_size = 20
+            successful_batches = 0
+            total_batches = (len(chunks) + batch_size - 1) // batch_size
             
-            # Step 5: Update database
+            for i in range(0, len(chunks), batch_size):
+                batch = chunks[i:i+batch_size]
+                batch_num = (i // batch_size) + 1
+                
+                for attempt in range(3):
+                    try:
+                        vectorstore.add_documents(batch)
+                        successful_batches += 1
+                        print(f"Processed batch {batch_num}/{total_batches}")
+                        break
+                    except Exception as e:
+                        if attempt == 2:
+                            return False, f"Failed to index batch {batch_num}: {e}", 0
+                        time.sleep(1)
+            
+            # Update database
             try:
                 file_service.update_file_chunks_count(user_email, file_name, len(chunks))
             except Exception as e:
                 print(f"Warning: Could not update database: {e}")
             
-            print(f"Successfully indexed {file_name}: {len(chunks)} chunks in {successful_batches} batches")
+            print(f"Successfully indexed {file_name}: {len(chunks)} chunks")
             return True, f"Successfully indexed {file_name}", len(chunks)
             
         except Exception as e:
@@ -323,17 +249,15 @@ class RAGService:
             return False, f"Error indexing {file_name}: {str(e)}", 0
     
     def search_user_documents(self, user_email: str, query: str, top_k: int = None) -> List[Tuple[str, str, float, Dict]]:
-        """Search user's documents and return with proper source citation"""
+        """Search user's documents"""
         if top_k is None:
             top_k = TOP_K
         
         try:
             vectorstore = self.get_user_vectorstore(user_email)
-            
             collection = vectorstore._collection
-            count = collection.count()
             
-            if count == 0:
+            if collection.count() == 0:
                 return []
             
             results = vectorstore.similarity_search_with_score(query, k=top_k)
@@ -363,10 +287,9 @@ class RAGService:
             return []
     
     def remove_user_document(self, user_email: str, file_name: str) -> bool:
-        """Remove document from user's vector store"""
+        """Remove document from vector store"""
         try:
             vectorstore = self.get_user_vectorstore(user_email)
-            
             collection = vectorstore._collection
             results = collection.get(where={"file_name": file_name})
             
@@ -377,17 +300,166 @@ class RAGService:
             return True
             
         except Exception as e:
-            print(f"Error removing document from vector store: {e}")
+            print(f"Error removing document: {e}")
             return False
     
     def get_user_document_count(self, user_email: str) -> int:
-        """Get number of documents in user's vector store"""
+        """Get document count in vector store"""
         try:
             vectorstore = self.get_user_vectorstore(user_email)
-            collection = vectorstore._collection
-            return collection.count()
+            return vectorstore._collection.count()
         except Exception:
             return 0
 
+    def cleanup_orphaned_vectors(self, user_email: str) -> Tuple[int, int, List[str]]:
+        """Clean up vector entries for files that don't exist on disk"""
+        try:
+            # Get user's document folder
+            user_documents_path = Path(RAG_DOCUMENTS_PATH) / user_email.replace("@", "_").replace(".", "_")
+            
+            if not user_documents_path.exists():
+                return 0, 0, []
+            
+            # Get actual files on disk
+            actual_files = set()
+            for file_path in user_documents_path.rglob("*"):
+                if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                    actual_files.add(file_path.name)
+            
+            # Get vector store
+            vectorstore = self.get_user_vectorstore(user_email)
+            collection = vectorstore._collection
+            
+            try:
+                all_docs = collection.get()
+                if not all_docs or not all_docs.get('metadatas'):
+                    return 0, 0, []
+                
+                # Find orphaned entries
+                orphaned_ids = []
+                orphaned_files = set()
+                
+                for doc_id, metadata in zip(all_docs['ids'], all_docs['metadatas']):
+                    file_name = metadata.get('file_name') or metadata.get('source', '')
+                    if file_name and file_name not in actual_files:
+                        orphaned_ids.append(doc_id)
+                        orphaned_files.add(file_name)
+                
+                # Remove orphaned entries in batches
+                cleanup_count = 0
+                if orphaned_ids:
+                    batch_size = 100
+                    for i in range(0, len(orphaned_ids), batch_size):
+                        batch_ids = orphaned_ids[i:i+batch_size]
+                        try:
+                            collection.delete(ids=batch_ids)
+                            cleanup_count += len(batch_ids)
+                        except Exception as e:
+                            print(f"Error deleting batch: {e}")
+                
+                return cleanup_count, len(actual_files), list(orphaned_files)
+                
+            except Exception as e:
+                print(f"Error accessing vector store: {e}")
+                return 0, 0, []
+            
+        except Exception as e:
+            print(f"Error in cleanup: {e}")
+            return 0, 0, []
+
 # Global RAG service instance
 rag_service = RAGService()
+
+# API Router for RAG endpoints
+router = APIRouter(tags=["RAG"])
+
+@router.post("/api/cleanup-vector-db/{user_email}")
+async def cleanup_user_vector_database(user_email: str):
+    """Clean up vector database for user - remove entries for non-existent files"""
+    try:
+        cleanup_count, remaining_files, orphaned_files = rag_service.cleanup_orphaned_vectors(user_email)
+        
+        # Also clean up database records
+        db_cleanup_count = 0
+        try:
+            from supabase import create_client
+            supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+            
+            user_documents_path = Path(RAG_DOCUMENTS_PATH) / user_email.replace("@", "_").replace(".", "_")
+            actual_files = set()
+            
+            if user_documents_path.exists():
+                for file_path in user_documents_path.rglob("*"):
+                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                        actual_files.add(file_path.name)
+            
+            # Get database records
+            db_files = supabase.table("user_documents")\
+                .select("*")\
+                .eq("user_id", user_email)\
+                .execute()
+            
+            if db_files.data:
+                for db_file in db_files.data:
+                    if db_file["file_name"] not in actual_files:
+                        try:
+                            supabase.table("user_documents")\
+                                .delete()\
+                                .eq("id", db_file["id"])\
+                                .execute()
+                            db_cleanup_count += 1
+                        except Exception as e:
+                            print(f"Error deleting DB record: {e}")
+        
+        except Exception as e:
+            print(f"Database cleanup error: {e}")
+        
+        return {
+            "status": "success",
+            "vector_entries_cleaned": cleanup_count,
+            "db_records_cleaned": db_cleanup_count,
+            "remaining_files": remaining_files,
+            "orphaned_files": orphaned_files,
+            "message": f"Cleaned {cleanup_count} vector entries and {db_cleanup_count} DB records. {remaining_files} files remain."
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "vector_entries_cleaned": 0,
+            "db_records_cleaned": 0,
+            "remaining_files": 0,
+            "orphaned_files": []
+        }
+
+@router.get("/api/vector-stats/{user_email}")
+async def get_user_vector_stats(user_email: str):
+    """Get vector database statistics for user"""
+    try:
+        doc_count = rag_service.get_user_document_count(user_email)
+        
+        # Get file system stats
+        user_documents_path = Path(RAG_DOCUMENTS_PATH) / user_email.replace("@", "_").replace(".", "_")
+        fs_files = 0
+        
+        if user_documents_path.exists():
+            for file_path in user_documents_path.rglob("*"):
+                if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                    fs_files += 1
+        
+        return {
+            "user_email": user_email,
+            "vector_entries": doc_count,
+            "filesystem_files": fs_files,
+            "sync_status": "synced" if doc_count > 0 and fs_files > 0 else "needs_cleanup"
+        }
+        
+    except Exception as e:
+        return {
+            "user_email": user_email,
+            "vector_entries": 0,
+            "filesystem_files": 0,
+            "sync_status": "error",
+            "error": str(e)
+        }
