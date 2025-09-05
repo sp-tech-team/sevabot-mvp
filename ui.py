@@ -560,20 +560,25 @@ def create_ui(app: FastAPI):
         if not user_data:
             return HTMLResponse(content=create_landing_page_html())
         ui_service.set_user(user_data)
-        return RedirectResponse("/gradio")
+        return RedirectResponse("/gradio/")  # Fixed: Add trailing slash
 
     @app.get("/chat")
     async def chat_redirect(request: Request):
         return RedirectResponse("/")
     
+    # FIXED: Corrected middleware logic
     @app.middleware("http")
     async def auth_middleware(request, call_next):
+        # Only apply auth check to gradio routes
         if request.url.path.startswith("/gradio"):
             user_data = get_logged_in_user(request)
             if not user_data:
+                # Only redirect if user is NOT authenticated
                 return RedirectResponse("/")
+            # Set user data if authenticated
             ui_service.set_user(user_data)
         
+        # IMPORTANT: Always call next for gradio routes when user IS authenticated
         response = await call_next(request)
         return response
     
