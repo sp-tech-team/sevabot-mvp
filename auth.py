@@ -1,4 +1,4 @@
-# auth.py - Authentication module with dynamic URL support
+# auth.py - Authentication module with dynamic URL support and role-based access
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse
 from supabase import create_client, Client
@@ -6,7 +6,7 @@ from config import (
     SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_ROLE_KEY,
     REDIRECT_URI, COOKIE_SECRET, COOKIE_NAME, ALLOWED_DOMAIN
 )
-from constants import SESSION_MAX_AGE, SESSION_SALT
+from constants import SESSION_MAX_AGE, SESSION_SALT, ADMIN_EMAILS
 from datetime import datetime
 import itsdangerous
 import secrets
@@ -126,7 +126,7 @@ def auth_callback(request: Request):
 
 @router.post("/auth/session")
 async def create_session(payload: dict, response: Response):
-    """Create user session from OAuth token with better error handling"""
+    """Create user session from OAuth token with role detection"""
     access_token = payload.get("access_token")
     if not access_token:
         return JSONResponse({"status": "error", "message": "Missing access token"}, status_code=400)
@@ -169,12 +169,17 @@ async def create_session(payload: dict, response: Response):
                 "message": f"Only @{ALLOWED_DOMAIN} email addresses are allowed"
             }, status_code=403)
 
-        # Store/update user in database
+        # FIXED: Determine user role from constants and update database
+        user_role = 'admin' if email.lower() in [admin.lower() for admin in ADMIN_EMAILS] else 'user'
+        print(f"DEBUG: User role determined: {user_role} for {email}")
+
+        # Store/update user in database with automatic role assignment
         try:
             user_data = {
                 "id": user_id,
                 "email": email,
                 "name": name,
+                "role": user_role,  # Always use role from constants
                 "avatar_url": user_metadata.get("avatar_url", ""),
                 "provider": "google",
                 "last_login": datetime.utcnow().isoformat(),
@@ -182,28 +187,29 @@ async def create_session(payload: dict, response: Response):
             }
             
             # Check if user exists
-            existing_user = admin_supabase.table("users").select("id").eq("id", user_id).execute()
+            existing_user = admin_supabase.table("users").select("id, role").eq("id", user_id).execute()
             
             if existing_user.data:
-                # Update existing user
+                # FIXED: Always update role from constants (overrides database)
                 admin_supabase.table("users").update({
                     "last_login": datetime.utcnow().isoformat(),
                     "name": name,
+                    "role": user_role,  # Force update role from constants
                     "avatar_url": user_metadata.get("avatar_url", ""),
                     "metadata": user_metadata
                 }).eq("id", user_id).execute()
-                print(f"DEBUG: Updated existing user: {email}")
+                print(f"DEBUG: Updated existing user: {email} with role: {user_role} (from constants)")
             else:
                 # Create new user
                 admin_supabase.table("users").insert(user_data).execute()
-                print(f"DEBUG: Created new user: {email}")
+                print(f"DEBUG: Created new user: {email} with role: {user_role}")
                 
         except Exception as db_error:
             print(f"WARNING: Could not store user data: {db_error}")
             # Continue anyway - don't fail login for database issues
 
-        # Create secure session cookie
-        session_data = {"email": email, "user_id": user_id, "name": name}
+        # Create secure session cookie with role
+        session_data = {"email": email, "user_id": user_id, "name": name, "role": user_role}
         signed_cookie = serializer.dumps(session_data)
         
         response = JSONResponse({"status": "ok", "user": session_data})
@@ -213,10 +219,11 @@ async def create_session(payload: dict, response: Response):
             httponly=True, 
             samesite="lax", 
             max_age=SESSION_MAX_AGE,
-            secure=False  # Set to True in production with HTTPS
+            secure=False,  # Set to True in production with HTTPS
+            path="/"
         )
         
-        print(f"SUCCESS: Session created for {email}")
+        print(f"SUCCESS: Session created for {email} with role: {user_role}")
         return response
 
     except Exception as e:
@@ -225,7 +232,7 @@ async def create_session(payload: dict, response: Response):
 
 @router.get("/auth/session")
 async def get_session(request: Request):
-    """Get current user session"""
+    """Get current user session with role"""
     cookie = request.cookies.get(COOKIE_NAME)
     if not cookie:
         return JSONResponse({"user": None})
@@ -236,7 +243,8 @@ async def get_session(request: Request):
             "user": {
                 "email": data.get("email"), 
                 "user_id": data.get("user_id"),
-                "name": data.get("name")
+                "name": data.get("name"),
+                "role": data.get("role", "user")  # Default to user if role not found
             }
         })
     except Exception as e:
@@ -256,7 +264,7 @@ def logout():
         return RedirectResponse("/")
 
 def get_logged_in_user(request: Request):
-    """Helper to extract user from request"""
+    """Helper to extract user from request with role"""
     cookie = request.cookies.get(COOKIE_NAME)
     if not cookie:
         return None
@@ -266,7 +274,8 @@ def get_logged_in_user(request: Request):
         return {
             "email": data.get("email"),
             "user_id": data.get("user_id"), 
-            "name": data.get("name")
+            "name": data.get("name"),
+            "role": data.get("role", "user")  # Default to user if role not found
         }
     except Exception as e:
         print(f"WARNING: Could not parse user session: {e}")

@@ -1,4 +1,4 @@
-# rag_service.py - Enhanced RAG service with cleanup functionality
+# rag_service.py - Enhanced RAG service with OCR rejection
 import os
 import warnings
 from pathlib import Path
@@ -26,7 +26,7 @@ from config import (
 from file_service import file_service
 
 class RAGService:
-    """Enhanced RAG service with cleanup functionality"""
+    """Enhanced RAG service with OCR rejection"""
     
     def __init__(self):
         self.index_path = Path(RAG_INDEX_PATH)
@@ -61,23 +61,24 @@ class RAGService:
         
         return self._user_vectorstores[user_email]
     
-    def load_document(self, file_path: str) -> List[Document]:
-        """Load document with enhanced error handling"""
+    def load_document(self, file_path: str) -> Tuple[List[Document], bool]:
+        """Load document with OCR rejection - returns (docs, used_ocr)"""
         try:
             file_path_obj = Path(file_path)
             
             if not file_path_obj.exists():
                 print(f"File not found: {file_path_obj}")
-                return []
+                return [], False
             
             file_size = file_path_obj.stat().st_size
             if file_size == 0:
                 print(f"File is empty: {file_path_obj}")
-                return []
+                return [], False
             
             print(f"Loading document: {file_path_obj.name} ({file_size / (1024*1024):.2f} MB)")
             
             docs = []
+            used_ocr = False
             
             if file_path_obj.suffix.lower() in ['.txt', '.md']:
                 loader = TextLoader(str(file_path_obj), encoding='utf-8', autodetect_encoding=True)
@@ -108,54 +109,21 @@ class RAGService:
                     except Exception as e:
                         print(f"PyMuPDFLoader failed: {e}")
                 
-                # OCR as final fallback
+                # MODIFIED: If normal PDF extraction fails, reject the file instead of using OCR
                 if not content_found:
-                    try:
-                        import easyocr
-                        import fitz
-                        
-                        reader = easyocr.Reader(['en'], verbose=False)
-                        doc = fitz.open(str(file_path_obj))
-                        extracted_text = ""
-                        
-                        for page_num, page in enumerate(doc):
-                            try:
-                                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                                img_data = pix.tobytes("png")
-                                results = reader.readtext(img_data, paragraph=True)
-                                page_text = "\n".join([item[1] for item in results if item[1].strip()])
-                                
-                                if page_text.strip():
-                                    extracted_text += f"\n\nPage {page_num + 1}:\n{page_text}"
-                                    
-                            except Exception as page_error:
-                                print(f"OCR failed for page {page_num + 1}: {page_error}")
-                        
-                        doc.close()
-                        
-                        if extracted_text.strip():
-                            docs = [Document(page_content=extracted_text.strip())]
-                            content_found = True
-                            print(f"Extracted text using OCR: {len(extracted_text)} characters")
-                        
-                    except ImportError:
-                        print("easyocr not installed")
-                    except Exception as e:
-                        print(f"OCR processing failed: {e}")
-                
-                if not content_found:
-                    print(f"All extraction methods failed for: {file_path_obj}")
-                    return []
+                    print(f"All standard PDF extraction methods failed for: {file_path_obj}")
+                    print(f"OCR would be required - rejecting file as per policy")
+                    return [], True  # Return True to indicate OCR would be needed
                 
             elif file_path_obj.suffix.lower() == '.docx':
                 loader = Docx2txtLoader(str(file_path_obj))
                 docs = loader.load()
             else:
                 print(f"Unsupported file type: {file_path_obj.suffix}")
-                return []
+                return [], False
             
             if not docs:
-                return []
+                return [], used_ocr
             
             # Add metadata
             valid_docs = []
@@ -172,14 +140,14 @@ class RAGService:
                     valid_docs.append(doc)
             
             print(f"Loaded {len(valid_docs)} valid documents from {file_path_obj.name}")
-            return valid_docs
+            return valid_docs, used_ocr
             
         except Exception as e:
             print(f"Error loading document {file_path}: {e}")
-            return []
+            return [], False
     
     def index_user_document(self, user_email: str, file_name: str) -> Tuple[bool, str, int]:
-        """Index document with retry logic"""
+        """Index document with OCR rejection"""
         try:
             user_path = file_service.get_user_documents_path(user_email)
             file_path = user_path / file_name
@@ -189,10 +157,26 @@ class RAGService:
             
             print(f"Indexing: {file_name}")
             
-            # Load document
-            docs = self.load_document(str(file_path))
+            # Load document with OCR check
+            docs, used_ocr = self.load_document(str(file_path))
+            
+            # MODIFIED: Reject if OCR would be needed
+            if used_ocr:
+                return False, f"❌ {file_name} requires OCR processing which is not supported. Please upload text-extractable PDFs only (max 10MB, .txt/.md/.pdf/.docx allowed).", 0
+            
             if not docs:
                 return False, f"Could not extract content from {file_name}", 0
+            
+            # Check if already indexed
+            vectorstore = self.get_user_vectorstore(user_email)
+            collection = vectorstore._collection
+            
+            # Check for existing chunks
+            existing_results = collection.get(where={"file_name": file_name})
+            if existing_results and existing_results['ids']:
+                existing_chunks = len(existing_results['ids'])
+                print(f"File {file_name} already indexed with {existing_chunks} chunks - skipping")
+                return True, f"✅ {file_name} already indexed ({existing_chunks} chunks)", existing_chunks
             
             # Split into chunks
             chunks = []
@@ -215,7 +199,6 @@ class RAGService:
                 })
             
             # Index chunks in batches
-            vectorstore = self.get_user_vectorstore(user_email)
             batch_size = 20
             successful_batches = 0
             total_batches = (len(chunks) + batch_size - 1) // batch_size
@@ -247,6 +230,53 @@ class RAGService:
         except Exception as e:
             print(f"Error indexing {file_name}: {e}")
             return False, f"Error indexing {file_name}: {str(e)}", 0
+    
+    def reindex_only_pending_files(self, user_email: str) -> Tuple[int, int, List[str]]:
+        """Re-index only files that are not yet indexed - FIXED"""
+        try:
+            files = file_service.list_user_files(user_email)
+            
+            # Get currently indexed files from vector store
+            vectorstore = self.get_user_vectorstore(user_email)
+            collection = vectorstore._collection
+            
+            indexed_files = set()
+            try:
+                all_docs = collection.get()
+                if all_docs and all_docs.get('metadatas'):
+                    for metadata in all_docs['metadatas']:
+                        file_name = metadata.get('file_name') or metadata.get('source', '')
+                        if file_name:
+                            indexed_files.add(file_name)
+            except Exception as e:
+                print(f"Error getting indexed files: {e}")
+            
+            # Filter to only pending files (not in vector store)
+            pending_files = [f for f in files if f["file_name"] not in indexed_files]
+            
+            if not pending_files:
+                return 0, len(files), []
+            
+            reindexed = 0
+            errors = []
+            
+            for file_info in pending_files:
+                file_name = file_info["file_name"]
+                try:
+                    success, msg, chunks = self.index_user_document(user_email, file_name)
+                    if success and not msg.startswith("✅"):  # Don't count "already indexed" as reindexed
+                        reindexed += 1
+                    elif not success:
+                        errors.append(f"{file_name}: {msg}")
+                        
+                except Exception as e:
+                    errors.append(f"{file_name}: {str(e)}")
+            
+            return reindexed, len(pending_files), errors
+            
+        except Exception as e:
+            print(f"Error in reindex: {e}")
+            return 0, 0, [str(e)]
     
     def search_user_documents(self, user_email: str, query: str, top_k: int = None) -> List[Tuple[str, str, float, Dict]]:
         """Search user's documents"""

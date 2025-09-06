@@ -7,3 +7,15 @@ feedback:
 1) answers my query, partially answers my query, doesn't answer my query
 2) preferably upload only doc and txt files for less storage. (as pdf size is usually larger) **
 3) mention extensions allowed for upload
+
+feedback after deployment: 
+1) hide file manager, but fix the file upload 
+2) curated email list for restricted access
+3) show list of files
+4) send button
+5) retain feedback emoji, it's not persisted
+6) avoid ocr pdf upload, give warning and cancel upload.
+5) Shift to S3 for file storage (only stretch)
+
+future:
+1) caching for loading already asked questions for saving time/memory/RAM

@@ -20,6 +20,20 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 APP_HOST = os.getenv("APP_HOST", DEFAULT_APP_HOST).strip()
 REDIRECT_URI = os.getenv("REDIRECT_URI", DEFAULT_REDIRECT_URI).strip()
 
+# Environment detection
+def detect_environment():
+    """Detect if we're running in production (EC2) or development"""
+    app_host = APP_HOST.lower()
+    if "ec2-" in app_host or "amazonaws.com" in app_host:
+        return "production"
+    elif "localhost" in app_host or "127.0.0.1" in app_host:
+        return "development"
+    else:
+        return "unknown"
+
+ENVIRONMENT = detect_environment()
+IS_PRODUCTION = ENVIRONMENT == "production"
+
 # Domain configuration
 ALLOWED_DOMAIN = os.getenv("ALLOWED_DOMAIN", DEFAULT_ALLOWED_DOMAIN).strip()
 
@@ -61,13 +75,9 @@ for var_name, var_value in required_vars.items():
 os.makedirs(RAG_DOCUMENTS_PATH, exist_ok=True)
 os.makedirs(RAG_INDEX_PATH, exist_ok=True)
 
-# Environment detection for logging
-is_production = "localhost" not in APP_HOST.lower()
-environment = "production" if is_production else "development"
-
-print(f"🤖 Sevabot Configuration Loaded ({environment}):")
+print(f"🤖 Sevabot Configuration Loaded ({ENVIRONMENT}):")
 print(f"   🌐 App Host: {APP_HOST}")
-print(f"   🔄 Redirect URI: {REDIRECT_URI}")
+print(f"   📄 Redirect URI: {REDIRECT_URI}")
 print(f"   📚 Documents Path: {RAG_DOCUMENTS_PATH}")
 print(f"   📊 Chunk Size: {CHUNK_SIZE}, Overlap: {CHUNK_OVERLAP}")
 print(f"   🔍 Top K Retrieval: {TOP_K}")

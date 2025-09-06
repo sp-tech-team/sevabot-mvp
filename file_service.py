@@ -1,4 +1,4 @@
-# file_service.py - Enhanced file management service
+# file_service.py - Enhanced file management service with environment detection
 import os
 import hashlib
 import shutil
@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
-from config import RAG_DOCUMENTS_PATH, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from config import RAG_DOCUMENTS_PATH, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
 from constants import SUPPORTED_EXTENSIONS, MAX_FILE_SIZE_MB, ERROR_MESSAGES
 from supabase import create_client
 
 class FileService:
-    """Enhanced file operations for users with better error handling"""
+    """Enhanced file operations for users with environment-based database updates"""
     
     def __init__(self):
         self.supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -62,7 +62,7 @@ class FileService:
         return True, ""
     
     def upload_file(self, user_email: str, file_path: str) -> Tuple[bool, str]:
-        """Upload file with pre-validation to avoid storing unprocessable files"""
+        """Upload file with database update only in production"""
         try:
             # Validate source path
             source_path = Path(file_path)
@@ -80,11 +80,6 @@ class FileService:
             is_valid, error_msg = self.is_valid_file(file_name, file_size)
             if not is_valid:
                 return False, error_msg
-            
-            # PRE-VALIDATE PDF CONTENT before uploading (optional check)
-            if file_name.lower().endswith('.pdf'):
-                print(f"PDF detected: {file_name} - will attempt OCR if needed during indexing")
-                # Note: We now allow all PDFs through since OCR can handle image-based ones
             
             # Get user directory and target path
             user_path = self.get_user_documents_path(user_email)
@@ -135,32 +130,35 @@ class FileService:
                 print(f"Warning: Could not generate hash for {file_name}")
                 file_hash = "unknown"
             
-            # Store in database
-            try:
-                doc_data = {
-                    "user_id": user_email,
-                    "file_name": file_name,
-                    "file_path": str(target_path.relative_to(self.base_documents_path)),
-                    "file_size": file_size,
-                    "file_hash": file_hash,
-                    "chunks_count": 0,  # Will be updated after indexing
-                    "uploaded_at": datetime.utcnow().isoformat(),
-                    "indexed_at": None
-                }
-                
-                result = self.supabase.table("user_documents").insert(doc_data).execute()
-                
-                if not result.data:
+            # MODIFIED: Store in database only in production
+            if IS_PRODUCTION:
+                try:
+                    doc_data = {
+                        "user_id": user_email,
+                        "file_name": file_name,
+                        "file_path": str(target_path.relative_to(self.base_documents_path)),
+                        "file_size": file_size,
+                        "file_hash": file_hash,
+                        "chunks_count": 0,  # Will be updated after indexing
+                        "uploaded_at": datetime.utcnow().isoformat(),
+                        "indexed_at": None
+                    }
+                    
+                    result = self.supabase.table("user_documents").insert(doc_data).execute()
+                    
+                    if not result.data:
+                        # Remove file if database insert failed
+                        if target_path.exists():
+                            target_path.unlink()
+                        return False, f"Database error storing {file_name} metadata"
+                        
+                except Exception as e:
                     # Remove file if database insert failed
                     if target_path.exists():
                         target_path.unlink()
-                    return False, f"Database error storing {file_name} metadata"
-                    
-            except Exception as e:
-                # Remove file if database insert failed
-                if target_path.exists():
-                    target_path.unlink()
-                return False, f"Database error for {file_name}: {str(e)}"
+                    return False, f"Database error for {file_name}: {str(e)}"
+            else:
+                print(f"Development mode: Skipping database update for {file_name}")
             
             print(f"Successfully uploaded: {file_name} -> {target_path}")
             return True, f"File '{file_name}' uploaded successfully"
@@ -169,97 +167,63 @@ class FileService:
             print(f"Unexpected error uploading file: {e}")
             return False, f"Upload error: {str(e)}"
     
-    def _validate_pdf_content(self, file_path: Path) -> Tuple[bool, str]:
-        """Pre-validate PDF to check if text can be extracted"""
-        try:
-            from langchain_community.document_loaders import PyPDFLoader, PyMuPDFLoader, PDFMinerLoader
-            
-            # Try PyPDFLoader first
-            try:
-                loader = PyPDFLoader(str(file_path))
-                docs = loader.load()
-                if docs and any(doc.page_content.strip() and len(doc.page_content.strip()) > 50 for doc in docs):
-                    return True, ""
-            except:
-                pass
-            
-            # Try PyMuPDFLoader
-            try:
-                loader = PyMuPDFLoader(str(file_path))
-                docs = loader.load()
-                if docs and any(doc.page_content.strip() and len(doc.page_content.strip()) > 50 for doc in docs):
-                    return True, ""
-            except:
-                pass
-            
-            # Try PDFMinerLoader
-            try:
-                loader = PDFMinerLoader(str(file_path))
-                docs = loader.load()
-                if docs and any(doc.page_content.strip() and len(doc.page_content.strip()) > 50 for doc in docs):
-                    return True, ""
-            except:
-                pass
-            
-            # All loaders failed - this is likely an image-based PDF
-            return False, f"PDF '{file_path.name}' is image-based and cannot be processed. Convert to text-searchable PDF or use .txt format."
-            
-        except Exception as e:
-            print(f"Error validating PDF content: {e}")
-            return True, ""  # Allow upload if validation fails
-    
     def list_user_files(self, user_email: str) -> List[Dict]:
-        """List all files for a user with error handling"""
+        """List files based on environment - production uses DB, dev uses filesystem"""
         try:
-            result = self.supabase.table("user_documents")\
-                .select("*")\
-                .eq("user_id", user_email)\
-                .order("uploaded_at", desc=True)\
-                .execute()
-            
-            files = result.data if result.data else []
-            
-            # Verify files still exist on filesystem
-            verified_files = []
-            user_path = self.get_user_documents_path(user_email)
-            
-            for file_info in files:
-                file_path = user_path / file_info["file_name"]
-                if file_path.exists():
-                    verified_files.append(file_info)
-                else:
-                    print(f"Warning: Database record exists but file not found: {file_info['file_name']}")
-                    # Optionally clean up orphaned database records
-                    try:
-                        self.supabase.table("user_documents")\
-                            .delete()\
-                            .eq("id", file_info["id"])\
-                            .execute()
-                        print(f"Cleaned up orphaned database record for {file_info['file_name']}")
-                    except:
-                        pass
-            
-            return verified_files
+            if IS_PRODUCTION:
+                # Production: Use database
+                result = self.supabase.table("user_documents")\
+                    .select("*")\
+                    .eq("user_id", user_email)\
+                    .order("uploaded_at", desc=True)\
+                    .execute()
+                
+                files = result.data if result.data else []
+                
+                # Verify files still exist on filesystem
+                verified_files = []
+                user_path = self.get_user_documents_path(user_email)
+                
+                for file_info in files:
+                    file_path = user_path / file_info["file_name"]
+                    if file_path.exists():
+                        verified_files.append(file_info)
+                    else:
+                        print(f"Warning: Database record exists but file not found: {file_info['file_name']}")
+                
+                return verified_files
+            else:
+                # Development: Use filesystem only
+                user_path = self.get_user_documents_path(user_email)
+                files = []
+                
+                if user_path.exists():
+                    for file_path in user_path.iterdir():
+                        if file_path.is_file() and file_path.suffix.lower() in SUPPORTED_EXTENSIONS:
+                            try:
+                                stat = file_path.stat()
+                                files.append({
+                                    "id": f"dev_{file_path.name}",
+                                    "file_name": file_path.name,
+                                    "file_size": stat.st_size,
+                                    "file_hash": "dev_mode",
+                                    "chunks_count": 0,  # Dev mode doesn't track chunks
+                                    "uploaded_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                                    "indexed_at": None
+                                })
+                            except Exception as e:
+                                print(f"Error reading file {file_path}: {e}")
+                                continue
+                
+                return files
             
         except Exception as e:
             print(f"Error listing files: {e}")
             return []
     
     def delete_file(self, user_email: str, file_name: str) -> Tuple[bool, str]:
-        """Delete a file for user with comprehensive cleanup"""
+        """Delete file with environment-based database cleanup"""
         try:
-            # Get file info from database
-            result = self.supabase.table("user_documents")\
-                .select("*")\
-                .eq("user_id", user_email)\
-                .eq("file_name", file_name)\
-                .execute()
-            
-            if not result.data:
-                return False, f"File '{file_name}' not found in database"
-            
-            file_info = result.data[0]
-            
             # Delete from filesystem
             user_path = self.get_user_documents_path(user_email)
             file_path = user_path / file_name
@@ -278,27 +242,60 @@ class FileService:
                 print(f"File not found on filesystem: {file_path}")
                 filesystem_deleted = True  # Consider missing file as "deleted"
             
-            # Delete from database
-            try:
-                self.supabase.table("user_documents")\
-                    .delete()\
-                    .eq("id", file_info["id"])\
-                    .execute()
-                print(f"Deleted database record for: {file_name}")
-                
-            except Exception as e:
-                # If filesystem delete succeeded but database failed, 
-                # we have an inconsistent state - warn user
-                if filesystem_deleted:
-                    return False, f"File deleted but database cleanup failed for {file_name}: {str(e)}"
-                else:
-                    return False, f"Database error deleting {file_name}: {str(e)}"
+            # Delete from database only in production
+            if IS_PRODUCTION:
+                try:
+                    result = self.supabase.table("user_documents")\
+                        .select("id")\
+                        .eq("user_id", user_email)\
+                        .eq("file_name", file_name)\
+                        .execute()
+                    
+                    if result.data:
+                        self.supabase.table("user_documents")\
+                            .delete()\
+                            .eq("id", result.data[0]["id"])\
+                            .execute()
+                        print(f"Deleted database record for: {file_name}")
+                    
+                except Exception as e:
+                    # If filesystem delete succeeded but database failed, warn user
+                    if filesystem_deleted:
+                        return False, f"File deleted but database cleanup failed for {file_name}: {str(e)}"
+                    else:
+                        return False, f"Database error deleting {file_name}: {str(e)}"
+            else:
+                print(f"Development mode: Skipping database cleanup for {file_name}")
             
             return True, f"File '{file_name}' deleted successfully"
             
         except Exception as e:
             print(f"Error deleting file: {e}")
             return False, f"Error deleting {file_name}: {str(e)}"
+    
+    def update_file_chunks_count(self, user_email: str, file_name: str, chunks_count: int):
+        """Update chunks count only in production"""
+        if not IS_PRODUCTION:
+            print(f"Development mode: Skipping chunks count update for {file_name}")
+            return
+        
+        try:
+            result = self.supabase.table("user_documents")\
+                .update({
+                    "chunks_count": chunks_count,
+                    "indexed_at": datetime.utcnow().isoformat()
+                })\
+                .eq("user_id", user_email)\
+                .eq("file_name", file_name)\
+                .execute()
+            
+            if result.data:
+                print(f"Updated chunks count for {file_name}: {chunks_count}")
+            else:
+                print(f"Warning: No rows updated for {file_name} chunks count")
+                
+        except Exception as e:
+            print(f"Error updating chunks count for {file_name}: {e}")
     
     def get_file_content(self, user_email: str, file_name: str) -> Optional[str]:
         """Get file content for processing with error handling"""
@@ -341,28 +338,24 @@ class FileService:
             print(f"Error reading file content for {file_name}: {e}")
             return None
     
-    def update_file_chunks_count(self, user_email: str, file_name: str, chunks_count: int):
-        """Update chunks count after indexing with error handling"""
-        try:
-            result = self.supabase.table("user_documents")\
-                .update({
-                    "chunks_count": chunks_count,
-                    "indexed_at": datetime.utcnow().isoformat()
-                })\
-                .eq("user_id", user_email)\
-                .eq("file_name", file_name)\
-                .execute()
-            
-            if result.data:
-                print(f"Updated chunks count for {file_name}: {chunks_count}")
-            else:
-                print(f"Warning: No rows updated for {file_name} chunks count")
-                
-        except Exception as e:
-            print(f"Error updating chunks count for {file_name}: {e}")
-    
     def get_file_info(self, user_email: str, file_name: str) -> Optional[Dict]:
         """Get detailed file information"""
+        if not IS_PRODUCTION:
+            # In development, create minimal file info from filesystem
+            user_path = self.get_user_documents_path(user_email)
+            file_path = user_path / file_name
+            
+            if file_path.exists():
+                stat = file_path.stat()
+                return {
+                    "id": f"dev_{file_name}",
+                    "file_name": file_name,
+                    "file_size": stat.st_size,
+                    "chunks_count": 0,
+                    "uploaded_at": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                }
+            return None
+        
         try:
             result = self.supabase.table("user_documents")\
                 .select("*")\

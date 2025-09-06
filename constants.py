@@ -1,10 +1,16 @@
-# constants.py - Application Constants
+# constants.py - Application Constants with Role-Based Access and Document Guidelines
 
 # App Configuration - Development defaults (will be overridden by environment variables in production)
 DEFAULT_REDIRECT_URI = "http://localhost:8001/auth/callback"
 DEFAULT_APP_HOST = "http://localhost:8001"
 DEFAULT_ALLOWED_DOMAIN = "sadhguru.org"
 DEFAULT_COOKIE_NAME = "sevabot_session"
+
+# Admin Configuration - Add admin emails here
+ADMIN_EMAILS = [
+    'abhishek.kumar2019@sadhguru.org',
+    'swapnil.padhi-ext@sadhguru.org'
+]
 
 # RAG Configuration
 DEFAULT_RAG_DOCUMENTS_PATH = "./user_documents"
@@ -24,9 +30,17 @@ MAX_SESSIONS_PER_USER = 10  # Maximum sessions per user
 SESSION_MAX_AGE = 86400  # 24 hours
 SESSION_SALT = "sevabot-auth"
 
-# File Configuration
+# File Configuration with Document Guidelines
 SUPPORTED_EXTENSIONS = ['.txt', '.md', '.pdf', '.docx']
 MAX_FILE_SIZE_MB = 10
+
+# Document Guidelines
+DOCUMENT_GUIDELINES = {
+    "max_size": "10MB",
+    "supported_formats": ".txt, .md, .pdf, .docx",
+    "pdf_requirement": "PDFs must be text-extractable (OCR not supported)",
+    "upload_restriction": "Files uploaded by administrators only"
+}
 
 NAMASKARAM_GREETINGS = [
     "Namaskaram! Ready to dive into your digital dharma library?",
@@ -77,14 +91,17 @@ MANDATORY CITATION EXAMPLES:
 
 Remember: ALWAYS start with source citation and maintain citations throughout. It's better to humbly say "I don't know" than to provide inaccurate information."""
 
-# Error Messages
+# Error Messages with Document Guidelines
 ERROR_MESSAGES = {
     "no_documents": "I don't have any documents uploaded to search through yet. I'd be happy to help once you upload some documents!",
     "embedding_error": "I encountered an error while processing your question. Please try again, and I'll do my best to help.",
     "no_openai_key": "OpenAI API key not configured. Please contact the administrator.",
     "file_too_large": f"File is too large. Maximum size is {MAX_FILE_SIZE_MB}MB.",
     "unsupported_format": f"Unsupported file format. Supported formats: {', '.join(SUPPORTED_EXTENSIONS)}",
+    "ocr_required": f"❌ PDF requires OCR processing which is not supported. Please upload text-extractable PDFs only (max {MAX_FILE_SIZE_MB}MB, {', '.join(SUPPORTED_EXTENSIONS)} allowed).",
     "upload_error": "Error uploading file. Please try again.",
     "delete_error": "Error deleting file. Please try again.",
-    "session_limit": f"You have reached the maximum limit of {MAX_SESSIONS_PER_USER} sessions. Please delete a session before creating a new one."
+    "session_limit": f"You have reached the maximum limit of {MAX_SESSIONS_PER_USER} sessions. Please delete a session before creating a new one.",
+    "admin_only": "This feature is available only to administrators.",
+    "access_denied": "Access denied. Insufficient permissions."
 }
