@@ -1,19 +1,42 @@
-# ui_service.py - Enhanced with local/cloud file detection and vector status
+# ui_service.py - Enhanced with 3-tier role system and common knowledge repository
 import os
 import threading
 from typing import List, Dict, Optional, Tuple, Any
 from pathlib import Path
 import gradio as gr
 
-from constants import MAX_SESSIONS_PER_USER, ERROR_MESSAGES
+from constants import MAX_SESSIONS_PER_USER, ERROR_MESSAGES, USER_ROLES
 from chat_service import chat_service
 from file_service import file_service
 from rag_service import rag_service
-from config import RAG_DOCUMENTS_PATH, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
+from config import COMMON_KNOWLEDGE_PATH, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
 from supabase import create_client
 
 class UIService:
-    """Enhanced service layer for UI interactions with role-based access control"""
+    """Enhanced service layer for UI interactions with 3-tier role-based access control"""
+    
+    def __init__(self):
+        self.current_user = {"email": "", "name": "User", "user_id": "", "role": "user"}
+        self.current_conversation_id = None
+        self.last_assistant_message_id = None
+        self._lock = threading.Lock()
+    
+# ui_service.py - Enhanced with 3-tier role system and common knowledge repository
+import os
+import threading
+from typing import List, Dict, Optional, Tuple, Any
+from pathlib import Path
+import gradio as gr
+
+from constants import MAX_SESSIONS_PER_USER, ERROR_MESSAGES, USER_ROLES
+from chat_service import chat_service
+from file_service import file_service
+from rag_service import rag_service
+from config import COMMON_KNOWLEDGE_PATH, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
+from supabase import create_client
+
+class UIService:
+    """Enhanced service layer for UI interactions with 3-tier role-based access control"""
     
     def __init__(self):
         self.current_user = {"email": "", "name": "User", "user_id": "", "role": "user"}
@@ -50,7 +73,15 @@ class UIService:
     
     def is_admin(self) -> bool:
         """Check if current user is admin"""
-        return self.current_user.get("role") == "admin"
+        return self.current_user.get("role") == USER_ROLES['admin']
+    
+    def is_spoc(self) -> bool:
+        """Check if current user is SPOC"""
+        return self.current_user.get("role") == USER_ROLES['spoc']
+    
+    def is_admin_or_spoc(self) -> bool:
+        """Check if current user is admin or SPOC"""
+        return self.is_admin() or self.is_spoc()
     
     def get_user_role(self) -> str:
         """Get current user role"""
@@ -66,10 +97,10 @@ class UIService:
             print(f"Error submitting feedback: {e}")
             return False
     
-    # ========== ADMIN USER MANAGEMENT ==========
+    # ========== USER MANAGEMENT ==========
     
     def get_all_users_for_admin(self) -> List[Dict]:
-        """Get all users for admin file management"""
+        """Get all users for admin management"""
         if not self.is_admin():
             return []
         
@@ -85,243 +116,108 @@ class UIService:
             print(f"Error getting users: {e}")
             return []
     
-    def search_users(self, search_term: str) -> List[Dict]:
-        """Search users by email or name (admin only)"""
-        if not self.is_admin() or not search_term:
+    def get_assigned_users_for_spoc(self) -> List[str]:
+        """Get users assigned to current SPOC"""
+        if not self.is_spoc():
             return []
         
-        users = self.get_all_users_for_admin()
-        filtered_users = [
-            user for user in users 
-            if search_term.lower() in user['email'].lower() or 
-               search_term.lower() in user['name'].lower()
-        ]
-        
-        return filtered_users
+        return chat_service.get_spoc_assignments(self.current_user["email"])
     
-    def get_enhanced_user_files_for_admin(self, target_user_email: str) -> List[List]:
-        """Get files with local/cloud flags and vector status (admin only) - ENHANCED"""
+    def get_all_spoc_assignments_for_admin(self) -> Dict[str, List[str]]:
+        """Get all SPOC assignments (admin only)"""
         if not self.is_admin():
+            return {}
+        
+        return chat_service.get_all_spoc_assignments()
+    
+    def add_spoc_assignment(self, spoc_email: str, user_email: str) -> bool:
+        """Add user assignment to SPOC (admin only)"""
+        if not self.is_admin():
+            return False
+        
+        return chat_service.add_spoc_assignment(spoc_email, user_email)
+    
+    def remove_spoc_assignment(self, spoc_email: str, user_email: str) -> bool:
+        """Remove user assignment from SPOC (admin only)"""
+        if not self.is_admin():
+            return False
+        
+        return chat_service.remove_spoc_assignment(spoc_email, user_email)
+    
+    def promote_user_to_spoc(self, user_email: str) -> bool:
+        """Promote a user to SPOC role (admin only)"""
+        if not self.is_admin():
+            return False
+        
+        try:
+            supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+            result = supabase.table("users")\
+                .update({"role": "spoc"})\
+                .eq("email", user_email)\
+                .execute()
+            
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error promoting user to SPOC: {e}")
+            return False
+    
+    def demote_spoc_to_user(self, spoc_email: str) -> bool:
+        """Demote a SPOC back to regular user (admin only)"""
+        if not self.is_admin():
+            return False
+        
+        try:
+            supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+            
+            # Remove all SPOC assignments first
+            supabase.table("spoc_assignments")\
+                .delete()\
+                .eq("spoc_email", spoc_email)\
+                .execute()
+            
+            # Update role to user
+            result = supabase.table("users")\
+                .update({"role": "user"})\
+                .eq("email", spoc_email)\
+                .execute()
+            
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error demoting SPOC to user: {e}")
+            return False
+    
+    def get_user_conversations_for_admin(self, target_user_email: str) -> List[Dict]:
+        """Get conversations for specific user (admin/SPOC only)"""
+        if not self.is_admin_or_spoc():
             return []
         
         try:
-            # Get user's document folder
-            user_folder = target_user_email.replace("@", "_").replace(".", "_")
-            user_documents_path = Path(RAG_DOCUMENTS_PATH) / user_folder
-            
-            # Get files from filesystem
-            local_files = set()
-            if user_documents_path.exists():
-                for file_path in user_documents_path.rglob("*"):
-                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
-                        local_files.add(file_path.name)
-            
-            # Get files from database (cloud)
-            cloud_files = {}
-            try:
-                supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-                result = supabase.table("user_documents")\
-                    .select("*")\
-                    .eq("user_id", target_user_email)\
-                    .order("uploaded_at", desc=True)\
-                    .execute()
-                
-                if result.data:
-                    for file_info in result.data:
-                        cloud_files[file_info["file_name"]] = file_info
-            except Exception as e:
-                print(f"Error getting cloud files: {e}")
-            
-            # Get vector status
-            vector_files = set()
-            try:
-                vectorstore = rag_service.get_user_vectorstore(target_user_email)
-                collection = vectorstore._collection
-                all_docs = collection.get()
-                
-                if all_docs and all_docs.get('metadatas'):
-                    for metadata in all_docs['metadatas']:
-                        file_name = metadata.get('file_name') or metadata.get('source', '')
-                        if file_name:
-                            vector_files.add(file_name)
-            except Exception as e:
-                print(f"Error getting vector status: {e}")
-            
-            # Combine all files
-            all_files = local_files.union(set(cloud_files.keys()))
-            file_list = []
-            
-            for file_name in sorted(all_files):
-                # Determine source
-                in_local = file_name in local_files
-                in_cloud = file_name in cloud_files
-                in_vector = file_name in vector_files
-                
-                if in_local and in_cloud:
-                    source_flag = "🔄 Synced"
-                elif in_local:
-                    source_flag = "💾 Local"
-                elif in_cloud:
-                    source_flag = "☁️ Cloud"
-                else:
-                    source_flag = "❓ Unknown"
-                
-                # Vector status
-                vector_status = "🔍 Indexed" if in_vector else "⏳ Not Indexed"
-                
-                # Get file info
-                if in_cloud:
-                    file_info = cloud_files[file_name]
-                    file_size = f"{file_info['file_size'] / 1024:.1f} KB"
-                    chunks_count = file_info.get("chunks_count", 0)
-                    status = "✅ Ready" if chunks_count > 0 else "⏳ Pending"
-                    uploaded_date = file_info["uploaded_at"][:10]
-                elif in_local:
-                    try:
-                        file_path = user_documents_path / file_name
-                        stat = file_path.stat()
-                        file_size = f"{stat.st_size / 1024:.1f} KB"
-                        chunks_count = 0
-                        status = "📁 Local Only"
-                        uploaded_date = "Unknown"
-                    except:
-                        file_size = "Unknown"
-                        chunks_count = 0
-                        status = "❓ Error"
-                        uploaded_date = "Unknown"
-                else:
-                    file_size = "Unknown"
-                    chunks_count = 0
-                    status = "❓ Missing"
-                    uploaded_date = "Unknown"
-                
-                file_list.append([
-                    file_name,
-                    file_size,
-                    chunks_count,
-                    status,
-                    source_flag,
-                    vector_status,
-                    uploaded_date,
-                    target_user_email
-                ])
-            
-            print(f"DEBUG: Enhanced file list for {target_user_email}: {len(file_list)} files")
-            return file_list
-            
+            conversations = chat_service.get_user_conversations(target_user_email)
+            return conversations
         except Exception as e:
-            print(f"ERROR: Error getting enhanced files for {target_user_email}: {e}")
+            print(f"ERROR: Error getting conversations for {target_user_email}: {e}")
             return []
     
-    def get_vector_database_stats(self, target_user_email: str) -> str:
-        """Get detailed vector database statistics"""
-        if not self.is_admin():
-            return "Access denied"
-        
+    def get_spoc_assignments_for_spoc(self, spoc_email: str) -> List[str]:
+        """Get users assigned to a SPOC"""
         try:
-            # Get user's document folder
-            user_folder = target_user_email.replace("@", "_").replace(".", "_")
-            user_documents_path = Path(RAG_DOCUMENTS_PATH) / user_folder
-            
-            # Count local files
-            local_files = set()
-            if user_documents_path.exists():
-                for file_path in user_documents_path.rglob("*"):
-                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
-                        local_files.add(file_path.name)
-            
-            # Count database files
-            cloud_files = set()
-            try:
-                supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-                result = supabase.table("user_documents")\
-                    .select("file_name")\
-                    .eq("user_id", target_user_email)\
-                    .execute()
-                
-                if result.data:
-                    cloud_files = {file_info["file_name"] for file_info in result.data}
-            except Exception as e:
-                print(f"Error getting cloud files: {e}")
-            
-            # Get vector store stats
-            vector_count = 0
-            vector_files = set()
-            vector_file_chunks = {}
-            
-            try:
-                vectorstore = rag_service.get_user_vectorstore(target_user_email)
-                collection = vectorstore._collection
-                vector_count = collection.count()
-                
-                all_docs = collection.get()
-                if all_docs and all_docs.get('metadatas'):
-                    for metadata in all_docs['metadatas']:
-                        file_name = metadata.get('file_name') or metadata.get('source', '')
-                        if file_name:
-                            vector_files.add(file_name)
-                            vector_file_chunks[file_name] = vector_file_chunks.get(file_name, 0) + 1
-            except Exception as e:
-                print(f"Error getting vector stats: {e}")
-            
-            # Generate report
-            stats = f"📊 **Vector Database Statistics for {target_user_email}**\n\n"
-            stats += f"**File Locations:**\n"
-            stats += f"• Local files: {len(local_files)}\n"
-            stats += f"• Database files: {len(cloud_files)}\n"
-            stats += f"• Vector indexed files: {len(vector_files)}\n"
-            stats += f"• Total vector chunks: {vector_count}\n\n"
-            
-            # Sync status
-            synced_files = local_files.intersection(cloud_files)
-            local_only = local_files - cloud_files
-            cloud_only = cloud_files - local_files
-            
-            stats += f"**Sync Status:**\n"
-            stats += f"• Synced (local + cloud): {len(synced_files)}\n"
-            stats += f"• Local only: {len(local_only)}\n"
-            stats += f"• Cloud only: {len(cloud_only)}\n\n"
-            
-            # Vector sync status
-            vector_synced = vector_files.intersection(local_files.union(cloud_files))
-            vector_orphaned = vector_files - local_files.union(cloud_files)
-            missing_from_vector = local_files.union(cloud_files) - vector_files
-            
-            stats += f"**Vector Sync Status:**\n"
-            stats += f"• Properly indexed: {len(vector_synced)}\n"
-            stats += f"• Orphaned vectors: {len(vector_orphaned)}\n"
-            stats += f"• Missing from vector: {len(missing_from_vector)}\n\n"
-            
-            if vector_file_chunks:
-                stats += f"**Chunks per file:**\n"
-                for file_name, chunk_count in sorted(vector_file_chunks.items()):
-                    stats += f"• {file_name}: {chunk_count} chunks\n"
-            
-            if vector_orphaned:
-                stats += f"\n**⚠️ Orphaned vectors (files no longer exist):**\n"
-                for file_name in sorted(vector_orphaned):
-                    stats += f"• {file_name}\n"
-            
-            if missing_from_vector:
-                stats += f"\n**⏳ Files not indexed:**\n"
-                for file_name in sorted(missing_from_vector):
-                    stats += f"• {file_name}\n"
-            
-            return stats
-            
+            return chat_service.get_spoc_assignments(spoc_email)
         except Exception as e:
-            return f"Error generating stats: {str(e)}"
+            print(f"Error getting SPOC assignments: {e}")
+            return []
     
     # ========== CHAT METHODS ==========
     
     def load_initial_data(self) -> Tuple[str, gr.update]:
-        """Load initial data for UI"""
+        """Load initial data for UI - regular users see their own conversations"""
+        # All users (including admins) start by seeing their own conversations
         conversations = chat_service.get_user_conversations(self.current_user["email"])
         session_choices = [(conv["title"], conv["id"]) for conv in conversations]
+        
         return "", gr.update(choices=session_choices, value=None)
     
     def send_message(self, message: str, history: List[List[str]], conversation_id: Optional[str]) -> Tuple[List[List[str]], str, Optional[str], gr.update, str]:
-        """Send message and get response"""
+        """Send message and get response from common knowledge repository"""
         if not message.strip():
             return history or [], "", conversation_id, gr.update(), ""
         
@@ -349,8 +245,8 @@ class UIService:
             # Get conversation history for context
             conv_history = chat_service.get_conversation_history(conversation_id)
             
-            # Generate response
-            response = chat_service.create_rag_response(self.current_user["email"], message, conv_history)
+            # Generate response using common knowledge repository
+            response = chat_service.create_rag_response(message, conv_history)
             
             # Store assistant message
             assistant_msg_id = chat_service.store_message(conversation_id, "assistant", response)
@@ -359,7 +255,7 @@ class UIService:
             # Update conversation timestamp
             chat_service.update_conversation_timestamp(conversation_id)
             
-            # Update history and sessions
+            # Update history and sessions (always use current user's conversations)
             new_history = (history or []) + [[message, response]]
             conversations = chat_service.get_user_conversations(self.current_user["email"])
             session_choices = [(conv["title"], conv["id"]) for conv in conversations]
@@ -372,7 +268,7 @@ class UIService:
             return (history or []) + [[message, error_msg]], "", conversation_id, gr.update(), error_msg
     
     def load_conversation(self, conversation_id: Optional[str]) -> Tuple[List[List[str]], Optional[str], str]:
-        """Load conversation history with feedback - FIXED for messages format"""
+        """Load conversation history with feedback"""
         if not conversation_id:
             return [], None, ""
         
@@ -391,7 +287,7 @@ class UIService:
             if not result.data:
                 return [], conversation_id, "Empty conversation loaded"
             
-            # FIXED: Create proper message format for Gradio
+            # Create proper message format for Gradio
             gradio_history = []
             user_msg = None
             
@@ -422,7 +318,6 @@ class UIService:
                             
                             assistant_content += f"\n\n*[Feedback: {feedback_display}]*"
                     
-                    # FIXED: Use tuple format instead of dictionary for Gradio compatibility
                     gradio_history.append([user_msg, assistant_content])
                     user_msg = None
             
@@ -431,7 +326,6 @@ class UIService:
         except Exception as e:
             print(f"Error loading conversation: {e}")
             history = chat_service.get_conversation_history(conversation_id)
-            # FIXED: Ensure tuple format
             gradio_history = [[user_msg, assistant_msg] for user_msg, assistant_msg in history]
             return gradio_history, conversation_id, f"Loaded conversation (feedback unavailable)"
     
@@ -444,9 +338,10 @@ class UIService:
         self.current_conversation_id = None
         
         user_name = self.get_display_name()
-        greeting = f"Namaskaram {user_name}! Ready to explore your documents?"
+        greeting = f"Namaskaram {user_name}! Ready to explore the knowledge repository?"
         initial_history = [["", greeting]]
         
+        # Always use current user's conversations
         conversations = chat_service.get_user_conversations(self.current_user["email"])
         session_choices = [(conv["title"], conv["id"]) for conv in conversations]
         sessions_update = gr.update(choices=session_choices, value=None)
@@ -454,17 +349,29 @@ class UIService:
         return initial_history, None, sessions_update, "New chat ready"
     
     def delete_conversation(self, conversation_id: Optional[str]) -> Tuple[List[List[str]], Optional[str], gr.update, str]:
-        """Delete conversation"""
+        """Delete conversation (only own conversations for non-admins)"""
         if not conversation_id:
             return [], None, gr.update(), "No conversation selected"
         
         try:
+            # For non-admins, only allow deleting own conversations
+            if not self.is_admin():
+                supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+                conv_result = supabase.table("conversations")\
+                    .select("user_id")\
+                    .eq("id", conversation_id)\
+                    .execute()
+                
+                if not conv_result.data or conv_result.data[0]["user_id"] != self.current_user["email"]:
+                    return [], conversation_id, gr.update(), "Can only delete your own conversations"
+            
             success = chat_service.delete_conversation(conversation_id, self.current_user["email"])
             
             if success:
                 if self.current_conversation_id == conversation_id:
                     self.current_conversation_id = None
                 
+                # Always use current user's conversations
                 conversations = chat_service.get_user_conversations(self.current_user["email"])
                 session_choices = [(conv["title"], conv["id"]) for conv in conversations]
                 sessions_update = gr.update(choices=session_choices, value=None)
@@ -476,24 +383,13 @@ class UIService:
         except Exception as e:
             return [], conversation_id, gr.update(), f"Error: {str(e)}"
     
-    # ========== FILE METHODS ==========
+    # ========== COMMON KNOWLEDGE FILE METHODS ==========
     
-    def upload_files_with_progress(self, files) -> Tuple[gr.update, str, gr.update]:
-        """Upload files for current user"""
-        return self._upload_files_for_user(files, self.current_user["email"])
-    
-    def upload_files_for_user(self, files, target_user_email: str) -> Tuple[gr.update, str, gr.update]:
-        """Upload files for specific user (admin only)"""
+    def upload_files_to_common_knowledge(self, files) -> Tuple[gr.update, str, gr.update]:
+        """Upload files to common knowledge repository (admin only)"""
         if not self.is_admin():
             return gr.update(), ERROR_MESSAGES["admin_only"], gr.update()
         
-        if not target_user_email:
-            return gr.update(), "Please select a user first", gr.update()
-        
-        return self._upload_files_for_user(files, target_user_email)
-    
-    def _upload_files_for_user(self, files, user_email: str) -> Tuple[gr.update, str, gr.update]:
-        """Internal method to upload files for any user"""
         if not files:
             return gr.update(), "No files selected", gr.update()
 
@@ -518,8 +414,6 @@ class UIService:
             total_chunks = 0
             errors = []
             status_updates = []
-            
-            user_display = user_email if self.is_admin() else "your account"
 
             for i, file_path in enumerate(file_paths):
                 if not file_path or not os.path.exists(file_path):
@@ -527,10 +421,12 @@ class UIService:
                     continue
                     
                 file_name = os.path.basename(file_path)
-                status_updates.append(f"Processing {i+1}/{len(file_paths)}: {file_name} for {user_display}")
+                status_updates.append(f"Processing {i+1}/{len(file_paths)}: {file_name}")
                 
                 try:
-                    success, message = file_service.upload_file(user_email, file_path)
+                    success, message = file_service.upload_file_to_common_knowledge(
+                        file_path, self.current_user["email"]
+                    )
                     
                     if success:
                         uploaded_count += 1
@@ -539,9 +435,7 @@ class UIService:
                         # Index with retries
                         for attempt in range(3):
                             try:
-                                index_success, index_msg, chunks_count = rag_service.index_user_document(
-                                    user_email, file_name
-                                )
+                                index_success, index_msg, chunks_count = rag_service.index_common_knowledge_document(file_name)
                                 
                                 if index_success:
                                     total_chunks += chunks_count
@@ -561,11 +455,11 @@ class UIService:
 
             final_status = "\n".join(status_updates)
             if uploaded_count > 0:
-                final_status += f"\n\n🎉 COMPLETED: {uploaded_count} files uploaded for {user_display} with {total_chunks} chunks"
+                final_status += f"\n\n🎉 COMPLETED: {uploaded_count} files uploaded to common knowledge repository with {total_chunks} chunks"
             if errors:
                 final_status += f"\n\n⚠️ ERRORS:\n" + "\n".join([f"• {error}" for error in errors])
 
-            files_list = self.get_file_list() if not self.is_admin() else []
+            files_list = self.get_common_knowledge_file_list()
             files_update = gr.update(value=files_list)
             choices = [row[0] for row in files_list] if files_list else []
             choices_update = gr.update(choices=choices, value=[])
@@ -575,27 +469,25 @@ class UIService:
         except Exception as e:
             return gr.update(), f"Upload error: {str(e)}", gr.update()
 
-    def delete_files_with_progress(self, selected_files: List[str], target_user_email: str = None) -> Tuple[gr.update, str, gr.update]:
-        """Delete files with progress tracking"""
+    def delete_common_knowledge_files_with_progress(self, selected_files: List[str]) -> Tuple[gr.update, str, gr.update]:
+        """Delete files from common knowledge repository with progress tracking (admin only)"""
+        if not self.is_admin():
+            return gr.update(), ERROR_MESSAGES["admin_only"], gr.update()
+            
         if not selected_files:
             return gr.update(), "No files selected", gr.update()
-        
-        # Determine target user
-        user_email = target_user_email if self.is_admin() and target_user_email else self.current_user["email"]
         
         try:
             deleted_count = 0
             errors = []
             status_updates = []
-            
-            user_display = user_email if self.is_admin() else "your account"
 
             for i, file_name in enumerate(selected_files):
-                status_updates.append(f"Deleting {i+1}/{len(selected_files)}: {file_name} from {user_display}")
+                status_updates.append(f"Deleting {i+1}/{len(selected_files)}: {file_name}")
                 
                 try:
-                    rag_service.remove_user_document(user_email, file_name)
-                    success, message = file_service.delete_file(user_email, file_name)
+                    rag_service.remove_common_knowledge_document(file_name)
+                    success, message = file_service.delete_common_knowledge_file(file_name)
                     
                     if success:
                         deleted_count += 1
@@ -608,11 +500,11 @@ class UIService:
 
             final_status = "\n".join(status_updates)
             if deleted_count > 0:
-                final_status += f"\n\n🎉 COMPLETED: {deleted_count} files deleted from {user_display}"
+                final_status += f"\n\n🎉 COMPLETED: {deleted_count} files deleted from common knowledge repository"
             if errors:
                 final_status += f"\n\n⚠️ ERRORS:\n" + "\n".join([f"• {error}" for error in errors])
 
-            files_list = self.get_file_list() if not self.is_admin() else []
+            files_list = self.get_common_knowledge_file_list()
             files_update = gr.update(value=files_list)
             choices = [row[0] for row in files_list] if files_list else []
             choices_update = gr.update(choices=choices, value=[])
@@ -622,43 +514,107 @@ class UIService:
         except Exception as e:
             return gr.update(), f"Delete error: {str(e)}", gr.update()
     
-    def get_file_list(self) -> List[List[Any]]:
-        """Get formatted file list for display (for current user)"""
+    def get_common_knowledge_file_list(self, search_term: str = "") -> List[List[Any]]:
+        """Get formatted file list for common knowledge repository with search - FIXED: Environment-aware chunk counts"""
         try:
-            files = file_service.list_user_files(self.current_user["email"])
+            files = file_service.list_common_knowledge_files()
             
             file_list = []
             for file_info in files:
-                chunks_count = file_info.get("chunks_count", 0)
+                # FIXED: Get actual chunks count from RAG service (environment-aware)
+                chunks_count = rag_service.get_file_chunks_count(file_info["file_name"])
                 status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+                
+                # Format file size
+                file_size = file_info["file_size"]
+                if file_size < 1024:
+                    size_str = f"{file_size} B"
+                elif file_size < 1024 * 1024:
+                    size_str = f"{file_size / 1024:.1f} KB"
+                else:
+                    size_str = f"{file_size / (1024 * 1024):.1f} MB"
+                
+                # Get file extension for type
+                file_ext = Path(file_info["file_name"]).suffix.upper().replace(".", "")
+                file_type = f"{file_ext} Document" if file_ext else "Document"
+                
+                file_row = [
+                    file_info["file_name"],
+                    size_str,
+                    file_type,
+                    chunks_count,  # FIXED: Use actual chunks count
+                    status,
+                    file_info["uploaded_at"][:10],
+                    file_info.get("uploaded_by", "Unknown")
+                ]
+                
+                # Apply search filter
+                if search_term:
+                    search_lower = search_term.lower()
+                    searchable_text = " ".join([
+                        file_info["file_name"].lower(),
+                        file_type.lower(),
+                        status.lower()
+                    ])
+                    if search_lower not in searchable_text:
+                        continue
+                
+                file_list.append(file_row)
+            
+            return file_list
+            
+        except Exception as e:
+            print(f"Error getting common knowledge file list: {e}")
+            return []
+    
+    def get_common_knowledge_file_list_for_users(self) -> List[List[Any]]:
+        """Get user-friendly file list for regular users (non-technical)"""
+        try:
+            files = file_service.list_common_knowledge_files()
+            
+            file_list = []
+            for file_info in files:
+                # Format file size
+                file_size = file_info["file_size"]
+                if file_size < 1024:
+                    size_str = f"{file_size} B"
+                elif file_size < 1024 * 1024:
+                    size_str = f"{file_size / 1024:.1f} KB"
+                else:
+                    size_str = f"{file_size / (1024 * 1024):.1f} MB"
+                
+                # Get file extension for type
+                file_ext = Path(file_info["file_name"]).suffix.upper().replace(".", "")
+                file_type = f"{file_ext} Document" if file_ext else "Document"
+                
+                # Uploaded date
+                upload_date = file_info["uploaded_at"][:10]
                 
                 file_list.append([
                     file_info["file_name"],
-                    f"{file_info['file_size'] / 1024:.1f} KB",
-                    chunks_count,
-                    status,
-                    file_info["uploaded_at"][:10]
+                    size_str,
+                    file_type,
+                    upload_date
                 ])
             
             return file_list
             
         except Exception as e:
-            print(f"Error getting file list: {e}")
+            print(f"Error getting user file list: {e}")
             return []
     
-    def reindex_pending_files(self, target_user_email: str = None) -> str:
-        """Re-index only files that are not yet indexed - IMPROVED"""
-        user_email = target_user_email if self.is_admin() and target_user_email else self.current_user["email"]
+    def reindex_common_knowledge_pending_files(self) -> str:
+        """Re-index only files that are not yet indexed in common knowledge repository"""
+        if not self.is_admin():
+            return ERROR_MESSAGES["admin_only"]
         
         try:
-            reindexed, total_pending, errors = rag_service.reindex_only_pending_files(user_email)
-            
-            user_display = user_email if self.is_admin() else "your account"
+            reindexed, total_pending, errors = rag_service.reindex_common_knowledge_pending_files()
             
             if total_pending == 0:
-                return f"✅ All files already indexed for {user_display}"
+                return "✅ All files already indexed in common knowledge repository"
             
-            result = f"📚 Re-indexing Summary for {user_display}:\n"
+            result = f"📚 Re-indexing Summary for Common Knowledge Repository:\n"
             result += f"• Files processed: {reindexed}/{total_pending}\n"
             result += f"• Files skipped (already indexed): {total_pending - reindexed - len(errors)}"
             
@@ -673,25 +629,26 @@ class UIService:
         except Exception as e:
             return f"Error re-indexing: {str(e)}"
 
-    def cleanup_vector_database(self, target_user_email: str = None) -> str:
-        """Clean up vector database by removing entries for files that don't exist on disk"""
-        user_email = target_user_email if self.is_admin() and target_user_email else self.current_user["email"]
+    def cleanup_common_knowledge_vector_database(self) -> str:
+        """Clean up common knowledge vector database"""
+        if not self.is_admin():
+            return ERROR_MESSAGES["admin_only"]
         
         try:
-            # Get user's document folder
-            user_documents_path = Path(RAG_DOCUMENTS_PATH) / user_email.replace("@", "_").replace(".", "_")
+            # Get common knowledge folder
+            common_knowledge_path = file_service.get_common_knowledge_path()
             
-            if not user_documents_path.exists():
-                return "✅ No user documents folder found - nothing to clean"
+            if not common_knowledge_path.exists():
+                return "✅ No common knowledge folder found - nothing to clean"
             
             # Get files from filesystem
             actual_files = set()
-            for file_path in user_documents_path.rglob("*"):
+            for file_path in common_knowledge_path.rglob("*"):
                 if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
                     actual_files.add(file_path.name)
             
-            # Get user's vector store
-            vectorstore = rag_service.get_user_vectorstore(user_email)
+            # Get common knowledge vector store
+            vectorstore = rag_service.get_common_knowledge_vectorstore()
             collection = vectorstore._collection
             
             # Get all documents in vector store
@@ -700,7 +657,7 @@ class UIService:
                 if not all_docs or not all_docs.get('metadatas'):
                     return "✅ Vector store is empty - nothing to clean"
                 
-                # Find orphaned entries (in vector store but not on disk)
+                # Find orphaned entries
                 orphaned_ids = []
                 orphaned_files = set()
                 
@@ -713,7 +670,6 @@ class UIService:
                 # Remove orphaned entries
                 cleanup_count = 0
                 if orphaned_ids:
-                    # Delete in batches to avoid memory issues
                     batch_size = 100
                     for i in range(0, len(orphaned_ids), batch_size):
                         batch_ids = orphaned_ids[i:i+batch_size]
@@ -728,17 +684,15 @@ class UIService:
                 try:
                     supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
                     
-                    # Get all database records for this user
-                    db_files = supabase.table("user_documents")\
+                    db_files = supabase.table("common_knowledge_documents")\
                         .select("*")\
-                        .eq("user_id", user_email)\
                         .execute()
                     
                     if db_files.data:
                         for db_file in db_files.data:
                             if db_file["file_name"] not in actual_files:
                                 try:
-                                    supabase.table("user_documents")\
+                                    supabase.table("common_knowledge_documents")\
                                         .delete()\
                                         .eq("id", db_file["id"])\
                                         .execute()
@@ -750,10 +704,8 @@ class UIService:
                     print(f"Database cleanup error: {e}")
                 
                 # Prepare result message
-                user_display = user_email if self.is_admin() else "your account"
-                
                 if cleanup_count > 0 or db_cleanup_count > 0:
-                    result = f"🧹 CLEANUP COMPLETED for {user_display}:\n"
+                    result = f"🧹 CLEANUP COMPLETED for Common Knowledge Repository:\n"
                     result += f"• Removed {cleanup_count} orphaned vector entries\n"
                     result += f"• Cleaned {db_cleanup_count} database records\n"
                     if orphaned_files:
@@ -761,64 +713,13 @@ class UIService:
                     result += f"• Remaining files on disk: {len(actual_files)}"
                     return result
                 else:
-                    return f"✅ Knowledge base is clean for {user_display} - {len(actual_files)} files verified"
+                    return f"✅ Knowledge repository is clean - {len(actual_files)} files verified"
                 
             except Exception as e:
                 return f"Error accessing vector store: {str(e)}"
             
         except Exception as e:
             return f"Error during cleanup: {str(e)}"
-        
-    def get_user_conversations_for_admin(self, target_user_email: str) -> List[Dict]:
-        """Get conversations for specific user (admin only)"""
-        if not self.is_admin():
-            return []
-        
-        try:
-            conversations = chat_service.get_user_conversations(target_user_email)
-            return conversations
-        except Exception as e:
-            print(f"ERROR: Error getting conversations for {target_user_email}: {e}")
-            return []
-        
-    def get_user_files_for_admin_from_db(self, target_user_email: str) -> List[List]:
-        """Get files for specific user from database (admin only) - always uses production DB"""
-        if not self.is_admin():
-            return []
-        
-        try:
-            supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-            
-            # Always query database for admin file management
-            result = supabase.table("user_documents")\
-                .select("*")\
-                .eq("user_id", target_user_email)\
-                .order("uploaded_at", desc=True)\
-                .execute()
-            
-            files = result.data if result.data else []
-            print(f"DEBUG: Found {len(files)} files in database for user {target_user_email}")
-            
-            file_list = []
-            for file_info in files:
-                chunks_count = file_info.get("chunks_count", 0)
-                status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
-                
-                file_list.append([
-                    file_info["file_name"],
-                    f"{file_info['file_size'] / 1024:.1f} KB",
-                    chunks_count,
-                    status,
-                    file_info["uploaded_at"][:10],
-                    target_user_email
-                ])
-            
-            print(f"DEBUG: Processed file list from database: {file_list}")
-            return file_list
-            
-        except Exception as e:
-            print(f"ERROR: Error getting files from database for {target_user_email}: {e}")
-            return []
 
 # Global UI service instance
 ui_service = UIService()

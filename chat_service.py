@@ -1,4 +1,4 @@
-# chat_service.py - Clean chat service with enhanced citation
+# chat_service.py - Clean chat service with common knowledge repository and SPOC access control
 import warnings
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
@@ -15,13 +15,13 @@ from config import (
 )
 from constants import (
     SYSTEM_PROMPT, MAX_HISTORY_TURNS, MAX_SESSIONS_PER_USER,
-    ERROR_MESSAGES
+    ERROR_MESSAGES, USER_ROLES
 )
 from supabase import create_client
 from rag_service import rag_service
 
 class ChatService:
-    """Manages chat conversations and RAG responses"""
+    """Manages chat conversations with common knowledge repository and SPOC access control"""
     
     def __init__(self):
         self.supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -71,6 +71,60 @@ class ChatService:
             
         except Exception as e:
             print(f"Error getting conversations: {e}")
+            return []
+    
+    def get_conversations_for_spoc(self, spoc_email: str) -> List[Dict]:
+        """Get conversations for users assigned to a SPOC"""
+        try:
+            # Get users assigned to this SPOC
+            assigned_users_result = self.supabase.table("spoc_assignments")\
+                .select("assigned_user_email")\
+                .eq("spoc_email", spoc_email)\
+                .execute()
+            
+            if not assigned_users_result.data:
+                return []
+            
+            assigned_user_emails = [item["assigned_user_email"] for item in assigned_users_result.data]
+            
+            if not assigned_user_emails:
+                return []
+            
+            # Get conversations for assigned users
+            conversations = []
+            for user_email in assigned_user_emails:
+                user_conversations = self.get_user_conversations(user_email)
+                # Add user info to each conversation for SPOC view
+                for conv in user_conversations:
+                    conv["owner_email"] = user_email
+                conversations.extend(user_conversations)
+            
+            # Sort by updated_at descending
+            conversations.sort(key=lambda x: x.get("updated_at", ""), reverse=True)
+            
+            return conversations
+            
+        except Exception as e:
+            print(f"Error getting SPOC conversations: {e}")
+            return []
+    
+    def get_all_conversations_for_admin(self) -> List[Dict]:
+        """Get all conversations for admin view"""
+        try:
+            result = self.supabase.table("conversations")\
+                .select("*, user_id")\
+                .order("updated_at", desc=True)\
+                .execute()
+            
+            if result.data:
+                # Add owner_email for consistency
+                for conv in result.data:
+                    conv["owner_email"] = conv["user_id"]
+            
+            return result.data if result.data else []
+            
+        except Exception as e:
+            print(f"Error getting all conversations: {e}")
             return []
     
     def delete_conversation(self, conversation_id: str, user_email: str) -> bool:
@@ -182,10 +236,10 @@ class ChatService:
         words = message.split()[:3]
         return ' '.join(words).title() if words else "New Chat"
     
-    def create_rag_response(self, user_email: str, query: str, conversation_history: List[Tuple[str, str]]) -> str:
-        """Create RAG response with enhanced source citation"""
+    def create_rag_response(self, query: str, conversation_history: List[Tuple[str, str]]) -> str:
+        """Create RAG response using common knowledge repository"""
         try:
-            search_results = rag_service.search_user_documents(user_email, query, TOP_K)
+            search_results = rag_service.search_common_knowledge(query, TOP_K)
             
             if not search_results:
                 return self._no_documents_response()
@@ -265,6 +319,77 @@ REMEMBER: You MUST start your response with source citations like "Based on [Doc
         except Exception as e:
             print(f"Error updating message feedback: {e}")
             return False
+    
+    # SPOC Management Methods
+    def add_spoc_assignment(self, spoc_email: str, assigned_user_email: str) -> bool:
+        """Add user assignment to SPOC"""
+        try:
+            assignment_data = {
+                "spoc_email": spoc_email,
+                "assigned_user_email": assigned_user_email,
+                "created_at": datetime.utcnow().isoformat()
+            }
+            
+            result = self.supabase.table("spoc_assignments").insert(assignment_data).execute()
+            return bool(result.data)
+            
+        except Exception as e:
+            print(f"Error adding SPOC assignment: {e}")
+            return False
+    
+    def remove_spoc_assignment(self, spoc_email: str, assigned_user_email: str) -> bool:
+        """Remove user assignment from SPOC"""
+        try:
+            result = self.supabase.table("spoc_assignments")\
+                .delete()\
+                .eq("spoc_email", spoc_email)\
+                .eq("assigned_user_email", assigned_user_email)\
+                .execute()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error removing SPOC assignment: {e}")
+            return False
+    
+    def get_spoc_assignments(self, spoc_email: str) -> List[str]:
+        """Get list of users assigned to a SPOC"""
+        try:
+            result = self.supabase.table("spoc_assignments")\
+                .select("assigned_user_email")\
+                .eq("spoc_email", spoc_email)\
+                .execute()
+            
+            if result.data:
+                return [item["assigned_user_email"] for item in result.data]
+            return []
+            
+        except Exception as e:
+            print(f"Error getting SPOC assignments: {e}")
+            return []
+    
+    def get_all_spoc_assignments(self) -> Dict[str, List[str]]:
+        """Get all SPOC assignments (admin only)"""
+        try:
+            result = self.supabase.table("spoc_assignments")\
+                .select("*")\
+                .execute()
+            
+            assignments = {}
+            if result.data:
+                for item in result.data:
+                    spoc_email = item["spoc_email"]
+                    user_email = item["assigned_user_email"]
+                    
+                    if spoc_email not in assignments:
+                        assignments[spoc_email] = []
+                    assignments[spoc_email].append(user_email)
+            
+            return assignments
+            
+        except Exception as e:
+            print(f"Error getting all SPOC assignments: {e}")
+            return {}
 
 # Global chat service instance
 chat_service = ChatService()

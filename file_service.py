@@ -1,4 +1,4 @@
-# file_service.py - Enhanced file management service with environment detection
+# file_service.py - Enhanced file management service with common knowledge repository
 import os
 import hashlib
 import shutil
@@ -6,24 +6,21 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
-from config import RAG_DOCUMENTS_PATH, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
+from config import COMMON_KNOWLEDGE_PATH, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
 from constants import SUPPORTED_EXTENSIONS, MAX_FILE_SIZE_MB, ERROR_MESSAGES
 from supabase import create_client
 
 class FileService:
-    """Enhanced file operations for users with environment-based database updates"""
+    """Enhanced file operations for common knowledge repository"""
     
     def __init__(self):
         self.supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-        self.base_documents_path = Path(RAG_DOCUMENTS_PATH)
-        self.base_documents_path.mkdir(exist_ok=True)
+        self.common_knowledge_path = Path(COMMON_KNOWLEDGE_PATH)
+        self.common_knowledge_path.mkdir(exist_ok=True)
     
-    def get_user_documents_path(self, user_email: str) -> Path:
-        """Get user-specific documents directory"""
-        user_folder = user_email.replace("@", "_").replace(".", "_")
-        user_path = self.base_documents_path / user_folder
-        user_path.mkdir(exist_ok=True)
-        return user_path
+    def get_common_knowledge_path(self) -> Path:
+        """Get common knowledge repository directory"""
+        return self.common_knowledge_path
     
     def get_file_hash(self, file_path: Path) -> str:
         """Generate MD5 hash of file with error handling"""
@@ -61,8 +58,8 @@ class FileService:
         
         return True, ""
     
-    def upload_file(self, user_email: str, file_path: str) -> Tuple[bool, str]:
-        """Upload file with database update only in production"""
+    def upload_file_to_common_knowledge(self, file_path: str, uploaded_by: str) -> Tuple[bool, str]:
+        """Upload file to common knowledge repository"""
         try:
             # Validate source path
             source_path = Path(file_path)
@@ -81,11 +78,10 @@ class FileService:
             if not is_valid:
                 return False, error_msg
             
-            # Get user directory and target path
-            user_path = self.get_user_documents_path(user_email)
-            target_path = user_path / file_name
+            # Get target path in common knowledge repository
+            target_path = self.common_knowledge_path / file_name
             
-            print(f"Uploading {file_name} ({file_size / 1024:.1f} KB) to {target_path}")
+            print(f"Uploading {file_name} ({file_size / 1024:.1f} KB) to common knowledge repository")
             
             # Check if file already exists
             if target_path.exists():
@@ -130,51 +126,48 @@ class FileService:
                 print(f"Warning: Could not generate hash for {file_name}")
                 file_hash = "unknown"
             
-            # MODIFIED: Store in database only in production
-            if IS_PRODUCTION:
-                try:
-                    doc_data = {
-                        "user_id": user_email,
-                        "file_name": file_name,
-                        "file_path": str(target_path.relative_to(self.base_documents_path)),
-                        "file_size": file_size,
-                        "file_hash": file_hash,
-                        "chunks_count": 0,  # Will be updated after indexing
-                        "uploaded_at": datetime.utcnow().isoformat(),
-                        "indexed_at": None
-                    }
-                    
-                    result = self.supabase.table("user_documents").insert(doc_data).execute()
-                    
-                    if not result.data:
-                        # Remove file if database insert failed
-                        if target_path.exists():
-                            target_path.unlink()
-                        return False, f"Database error storing {file_name} metadata"
-                        
-                except Exception as e:
+            # Store in database (always for common knowledge repository)
+            try:
+                doc_data = {
+                    "file_name": file_name,
+                    "file_path": str(target_path.relative_to(self.common_knowledge_path)),
+                    "file_size": file_size,
+                    "file_hash": file_hash,
+                    "chunks_count": 0,  # Will be updated after indexing
+                    "uploaded_at": datetime.utcnow().isoformat(),
+                    "uploaded_by": uploaded_by,
+                    "indexed_at": None,
+                    "is_common_knowledge": True
+                }
+                
+                result = self.supabase.table("common_knowledge_documents").insert(doc_data).execute()
+                
+                if not result.data:
                     # Remove file if database insert failed
                     if target_path.exists():
                         target_path.unlink()
-                    return False, f"Database error for {file_name}: {str(e)}"
-            else:
-                print(f"Development mode: Skipping database update for {file_name}")
+                    return False, f"Database error storing {file_name} metadata"
+                    
+            except Exception as e:
+                # Remove file if database insert failed
+                if target_path.exists():
+                    target_path.unlink()
+                return False, f"Database error for {file_name}: {str(e)}"
             
             print(f"Successfully uploaded: {file_name} -> {target_path}")
-            return True, f"File '{file_name}' uploaded successfully"
+            return True, f"File '{file_name}' uploaded successfully to common knowledge repository"
             
         except Exception as e:
             print(f"Unexpected error uploading file: {e}")
             return False, f"Upload error: {str(e)}"
     
-    def list_user_files(self, user_email: str) -> List[Dict]:
-        """List files based on environment - production uses DB, dev uses filesystem"""
+    def list_common_knowledge_files(self) -> List[Dict]:
+        """List files in common knowledge repository (environment-aware)"""
         try:
             if IS_PRODUCTION:
                 # Production: Use database
-                result = self.supabase.table("user_documents")\
+                result = self.supabase.table("common_knowledge_documents")\
                     .select("*")\
-                    .eq("user_id", user_email)\
                     .order("uploaded_at", desc=True)\
                     .execute()
                 
@@ -182,10 +175,8 @@ class FileService:
                 
                 # Verify files still exist on filesystem
                 verified_files = []
-                user_path = self.get_user_documents_path(user_email)
-                
                 for file_info in files:
-                    file_path = user_path / file_info["file_name"]
+                    file_path = self.common_knowledge_path / file_info["file_name"]
                     if file_path.exists():
                         verified_files.append(file_info)
                     else:
@@ -194,12 +185,10 @@ class FileService:
                 return verified_files
             else:
                 # Development: Use filesystem only
-                user_path = self.get_user_documents_path(user_email)
                 files = []
-                
-                if user_path.exists():
-                    for file_path in user_path.iterdir():
-                        if file_path.is_file() and file_path.suffix.lower() in SUPPORTED_EXTENSIONS:
+                if self.common_knowledge_path.exists():
+                    for file_path in self.common_knowledge_path.iterdir():
+                        if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
                             try:
                                 stat = file_path.stat()
                                 files.append({
@@ -209,7 +198,9 @@ class FileService:
                                     "file_hash": "dev_mode",
                                     "chunks_count": 0,  # Dev mode doesn't track chunks
                                     "uploaded_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                                    "indexed_at": None
+                                    "uploaded_by": "dev_user",
+                                    "indexed_at": None,
+                                    "is_common_knowledge": True
                                 })
                             except Exception as e:
                                 print(f"Error reading file {file_path}: {e}")
@@ -218,15 +209,14 @@ class FileService:
                 return files
             
         except Exception as e:
-            print(f"Error listing files: {e}")
+            print(f"Error listing common knowledge files: {e}")
             return []
     
-    def delete_file(self, user_email: str, file_name: str) -> Tuple[bool, str]:
-        """Delete file with environment-based database cleanup"""
+    def delete_common_knowledge_file(self, file_name: str) -> Tuple[bool, str]:
+        """Delete file from common knowledge repository"""
         try:
             # Delete from filesystem
-            user_path = self.get_user_documents_path(user_email)
-            file_path = user_path / file_name
+            file_path = self.common_knowledge_path / file_name
             
             filesystem_deleted = False
             if file_path.exists():
@@ -242,50 +232,41 @@ class FileService:
                 print(f"File not found on filesystem: {file_path}")
                 filesystem_deleted = True  # Consider missing file as "deleted"
             
-            # Delete from database only in production
-            if IS_PRODUCTION:
-                try:
-                    result = self.supabase.table("user_documents")\
-                        .select("id")\
-                        .eq("user_id", user_email)\
-                        .eq("file_name", file_name)\
+            # Delete from database
+            try:
+                result = self.supabase.table("common_knowledge_documents")\
+                    .select("id")\
+                    .eq("file_name", file_name)\
+                    .execute()
+                
+                if result.data:
+                    self.supabase.table("common_knowledge_documents")\
+                        .delete()\
+                        .eq("id", result.data[0]["id"])\
                         .execute()
-                    
-                    if result.data:
-                        self.supabase.table("user_documents")\
-                            .delete()\
-                            .eq("id", result.data[0]["id"])\
-                            .execute()
-                        print(f"Deleted database record for: {file_name}")
-                    
-                except Exception as e:
-                    # If filesystem delete succeeded but database failed, warn user
-                    if filesystem_deleted:
-                        return False, f"File deleted but database cleanup failed for {file_name}: {str(e)}"
-                    else:
-                        return False, f"Database error deleting {file_name}: {str(e)}"
-            else:
-                print(f"Development mode: Skipping database cleanup for {file_name}")
+                    print(f"Deleted database record for: {file_name}")
+                
+            except Exception as e:
+                # If filesystem delete succeeded but database failed, warn user
+                if filesystem_deleted:
+                    return False, f"File deleted but database cleanup failed for {file_name}: {str(e)}"
+                else:
+                    return False, f"Database error deleting {file_name}: {str(e)}"
             
-            return True, f"File '{file_name}' deleted successfully"
+            return True, f"File '{file_name}' deleted successfully from common knowledge repository"
             
         except Exception as e:
             print(f"Error deleting file: {e}")
             return False, f"Error deleting {file_name}: {str(e)}"
     
-    def update_file_chunks_count(self, user_email: str, file_name: str, chunks_count: int):
-        """Update chunks count only in production"""
-        if not IS_PRODUCTION:
-            print(f"Development mode: Skipping chunks count update for {file_name}")
-            return
-        
+    def update_common_knowledge_file_chunks_count(self, file_name: str, chunks_count: int):
+        """Update chunks count for common knowledge file"""
         try:
-            result = self.supabase.table("user_documents")\
+            result = self.supabase.table("common_knowledge_documents")\
                 .update({
                     "chunks_count": chunks_count,
                     "indexed_at": datetime.utcnow().isoformat()
                 })\
-                .eq("user_id", user_email)\
                 .eq("file_name", file_name)\
                 .execute()
             
@@ -297,11 +278,10 @@ class FileService:
         except Exception as e:
             print(f"Error updating chunks count for {file_name}: {e}")
     
-    def get_file_content(self, user_email: str, file_name: str) -> Optional[str]:
-        """Get file content for processing with error handling"""
+    def get_common_knowledge_file_content(self, file_name: str) -> Optional[str]:
+        """Get file content from common knowledge repository"""
         try:
-            user_path = self.get_user_documents_path(user_email)
-            file_path = user_path / file_name
+            file_path = self.common_knowledge_path / file_name
             
             if not file_path.exists():
                 print(f"File not found: {file_path}")
@@ -338,28 +318,11 @@ class FileService:
             print(f"Error reading file content for {file_name}: {e}")
             return None
     
-    def get_file_info(self, user_email: str, file_name: str) -> Optional[Dict]:
-        """Get detailed file information"""
-        if not IS_PRODUCTION:
-            # In development, create minimal file info from filesystem
-            user_path = self.get_user_documents_path(user_email)
-            file_path = user_path / file_name
-            
-            if file_path.exists():
-                stat = file_path.stat()
-                return {
-                    "id": f"dev_{file_name}",
-                    "file_name": file_name,
-                    "file_size": stat.st_size,
-                    "chunks_count": 0,
-                    "uploaded_at": datetime.fromtimestamp(stat.st_mtime).isoformat()
-                }
-            return None
-        
+    def get_common_knowledge_file_info(self, file_name: str) -> Optional[Dict]:
+        """Get detailed file information from common knowledge repository"""
         try:
-            result = self.supabase.table("user_documents")\
+            result = self.supabase.table("common_knowledge_documents")\
                 .select("*")\
-                .eq("user_id", user_email)\
                 .eq("file_name", file_name)\
                 .execute()
             

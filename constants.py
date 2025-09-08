@@ -1,4 +1,4 @@
-# constants.py - Application Constants with Role-Based Access and Document Guidelines
+# constants.py - Application Constants with Role-Based Access and Common Knowledge Repository
 
 # App Configuration - Development defaults (will be overridden by environment variables in production)
 DEFAULT_REDIRECT_URI = "http://localhost:8001/auth/callback"
@@ -8,23 +8,31 @@ DEFAULT_COOKIE_NAME = "sevabot_session"
 
 # Admin Configuration - Add admin emails here
 ADMIN_EMAILS = [
-    'abhishek.kumar2019@sadhguru.org',
-    'swapnil.padhi-ext@sadhguru.org'
+    'swapnil.padhi-ext@sadhguru.org',
+    'abhishek.kumar2019@sadhguru.org'
+]
+
+# SPOC Configuration - Single Point of Contact users
+SPOC_EMAILS = [
+    # 'swapnil.padhi-ext@sadhguru.org',
+    'deepak-soni.ext@sadhguru.org',
+    'ravi.kore-ext@sadhguru.org'
 ]
 
 # RAG Configuration
 DEFAULT_RAG_DOCUMENTS_PATH = "./user_documents"
+DEFAULT_COMMON_KNOWLEDGE_PATH = "./common_knowledge"  # New common repository
 DEFAULT_RAG_INDEX_PATH = "./rag_index"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
 DEFAULT_CHUNK_SIZE = 1000
 DEFAULT_CHUNK_OVERLAP = 200
-DEFAULT_TOP_K = 8  # Increased from 5 to 8 for better context coverage
+DEFAULT_TOP_K = 8
 
 # Chat Configuration
-DEFAULT_CHAT_MODEL = "gpt-4o"  # Using GPT-4o for better reasoning
+DEFAULT_CHAT_MODEL = "gpt-4o"
 DEFAULT_TEMPERATURE = 0.7
-MAX_HISTORY_TURNS = 10  # Maximum conversation turns to keep in context
-MAX_SESSIONS_PER_USER = 10  # Maximum sessions per user
+MAX_HISTORY_TURNS = 10
+MAX_SESSIONS_PER_USER = 10
 
 # Session Configuration
 SESSION_MAX_AGE = 86400  # 24 hours
@@ -34,12 +42,19 @@ SESSION_SALT = "sevabot-auth"
 SUPPORTED_EXTENSIONS = ['.txt', '.md', '.pdf', '.docx']
 MAX_FILE_SIZE_MB = 10
 
+# User Roles
+USER_ROLES = {
+    'admin': 'admin',
+    'spoc': 'spoc', 
+    'user': 'user'
+}
+
 # Document Guidelines
 DOCUMENT_GUIDELINES = {
     "max_size": "10MB",
     "supported_formats": ".txt, .md, .pdf, .docx",
     "pdf_requirement": "PDFs must be text-extractable (OCR not supported)",
-    "upload_restriction": "Files uploaded by administrators only"
+    "upload_restriction": "Files uploaded by administrators to common knowledge repository"
 }
 
 NAMASKARAM_GREETINGS = [
@@ -56,7 +71,7 @@ NAMASKARAM_GREETINGS = [
 ]
 
 # System Prompt
-SYSTEM_PROMPT = """You are a helpful AI assistant that answers questions based ONLY on the provided context from uploaded documents.
+SYSTEM_PROMPT = """You are a helpful AI assistant that answers questions based ONLY on the provided context from the common knowledge repository.
 
 CRITICAL CITATION REQUIREMENTS:
 1. START EVERY RESPONSE by citing the relevant sources: "Based on [Document Name] and [Document Name]..."
@@ -93,15 +108,16 @@ Remember: ALWAYS start with source citation and maintain citations throughout. I
 
 # Error Messages with Document Guidelines
 ERROR_MESSAGES = {
-    "no_documents": "I don't have any documents uploaded to search through yet. I'd be happy to help once you upload some documents!",
+    "no_documents": "I don't have any documents in the knowledge repository to search through yet. Please contact an administrator to upload documents.",
     "embedding_error": "I encountered an error while processing your question. Please try again, and I'll do my best to help.",
     "no_openai_key": "OpenAI API key not configured. Please contact the administrator.",
     "file_too_large": f"File is too large. Maximum size is {MAX_FILE_SIZE_MB}MB.",
     "unsupported_format": f"Unsupported file format. Supported formats: {', '.join(SUPPORTED_EXTENSIONS)}",
-    "ocr_required": f"❌ PDF requires OCR processing which is not supported. Please upload text-extractable PDFs only (max {MAX_FILE_SIZE_MB}MB, {', '.join(SUPPORTED_EXTENSIONS)} allowed).",
+    "ocr_required": f"PDF requires OCR processing which is not supported. Please upload text-extractable PDFs only (max {MAX_FILE_SIZE_MB}MB, {', '.join(SUPPORTED_EXTENSIONS)} allowed).",
     "upload_error": "Error uploading file. Please try again.",
     "delete_error": "Error deleting file. Please try again.",
     "session_limit": f"You have reached the maximum limit of {MAX_SESSIONS_PER_USER} sessions. Please delete a session before creating a new one.",
     "admin_only": "This feature is available only to administrators.",
+    "spoc_only": "This feature is available only to administrators and SPOCs.",
     "access_denied": "Access denied. Insufficient permissions."
 }

@@ -1,4 +1,4 @@
-# rag_service.py - Enhanced RAG service with OCR rejection
+# rag_service.py - Enhanced RAG service for common knowledge repository
 import os
 import warnings
 from pathlib import Path
@@ -20,13 +20,13 @@ from fastapi import APIRouter
 
 from config import (
     RAG_INDEX_PATH, OPENAI_API_KEY, EMBEDDING_MODEL,
-    CHUNK_SIZE, CHUNK_OVERLAP, TOP_K, RAG_DOCUMENTS_PATH,
-    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+    CHUNK_SIZE, CHUNK_OVERLAP, TOP_K, COMMON_KNOWLEDGE_PATH,
+    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
 )
 from file_service import file_service
 
 class RAGService:
-    """Enhanced RAG service with OCR rejection"""
+    """Enhanced RAG service for common knowledge repository"""
     
     def __init__(self):
         self.index_path = Path(RAG_INDEX_PATH)
@@ -44,22 +44,23 @@ class RAGService:
             separators=["\n\n", "\n", ". ", " ", ""]
         )
         
-        self._user_vectorstores = {}
+        self._common_vectorstore = None
+        # FIXED: Store chunks count locally for development mode
+        self._dev_chunks_count = {}
     
-    def get_user_vectorstore(self, user_email: str) -> Chroma:
-        """Get or create user-specific vector store"""
-        if user_email not in self._user_vectorstores:
-            user_folder = user_email.replace("@", "_").replace(".", "_")
-            chroma_path = self.index_path / user_folder
+    def get_common_knowledge_vectorstore(self) -> Chroma:
+        """Get or create common knowledge vector store"""
+        if self._common_vectorstore is None:
+            chroma_path = self.index_path / "common_knowledge"
             chroma_path.mkdir(exist_ok=True)
             
-            self._user_vectorstores[user_email] = Chroma(
+            self._common_vectorstore = Chroma(
                 persist_directory=str(chroma_path),
                 embedding_function=self.embeddings,
-                collection_name="user_documents"
+                collection_name="common_knowledge"
             )
         
-        return self._user_vectorstores[user_email]
+        return self._common_vectorstore
     
     def load_document(self, file_path: str) -> Tuple[List[Document], bool]:
         """Load document with OCR rejection - returns (docs, used_ocr)"""
@@ -109,7 +110,7 @@ class RAGService:
                     except Exception as e:
                         print(f"PyMuPDFLoader failed: {e}")
                 
-                # MODIFIED: If normal PDF extraction fails, reject the file instead of using OCR
+                # If normal PDF extraction fails, reject the file instead of using OCR
                 if not content_found:
                     print(f"All standard PDF extraction methods failed for: {file_path_obj}")
                     print(f"OCR would be required - rejecting file as per policy")
@@ -135,7 +136,8 @@ class RAGService:
                         'file_path': str(file_path_obj),
                         'file_size': file_size,
                         'indexed_at': datetime.utcnow().isoformat(),
-                        'content_length': len(doc.page_content)
+                        'content_length': len(doc.page_content),
+                        'is_common_knowledge': True
                     })
                     valid_docs.append(doc)
             
@@ -146,29 +148,28 @@ class RAGService:
             print(f"Error loading document {file_path}: {e}")
             return [], False
     
-    def index_user_document(self, user_email: str, file_name: str) -> Tuple[bool, str, int]:
-        """Index document with OCR rejection"""
+    def index_common_knowledge_document(self, file_name: str) -> Tuple[bool, str, int]:
+        """Index document in common knowledge repository"""
         try:
-            user_path = file_service.get_user_documents_path(user_email)
-            file_path = user_path / file_name
+            file_path = file_service.get_common_knowledge_path() / file_name
             
             if not file_path.exists():
-                return False, f"File {file_name} not found", 0
+                return False, f"File {file_name} not found in common knowledge repository", 0
             
             print(f"Indexing: {file_name}")
             
             # Load document with OCR check
             docs, used_ocr = self.load_document(str(file_path))
             
-            # MODIFIED: Reject if OCR would be needed
+            # Reject if OCR would be needed
             if used_ocr:
-                return False, f"❌ {file_name} requires OCR processing which is not supported. Please upload text-extractable PDFs only (max 10MB, .txt/.md/.pdf/.docx allowed).", 0
+                return False, f"{file_name} requires OCR processing which is not supported. Please upload text-extractable PDFs only (max 10MB, .txt/.md/.pdf/.docx allowed).", 0
             
             if not docs:
                 return False, f"Could not extract content from {file_name}", 0
             
             # Check if already indexed
-            vectorstore = self.get_user_vectorstore(user_email)
+            vectorstore = self.get_common_knowledge_vectorstore()
             collection = vectorstore._collection
             
             # Check for existing chunks
@@ -176,7 +177,18 @@ class RAGService:
             if existing_results and existing_results['ids']:
                 existing_chunks = len(existing_results['ids'])
                 print(f"File {file_name} already indexed with {existing_chunks} chunks - skipping")
-                return True, f"✅ {file_name} already indexed ({existing_chunks} chunks)", existing_chunks
+                
+                # FIXED: Update chunks count for both dev and production
+                if IS_PRODUCTION:
+                    try:
+                        file_service.update_common_knowledge_file_chunks_count(file_name, existing_chunks)
+                    except Exception as e:
+                        print(f"Warning: Could not update database chunks count: {e}")
+                else:
+                    # Store in memory for development
+                    self._dev_chunks_count[file_name] = existing_chunks
+                
+                return True, f"{file_name} already indexed ({existing_chunks} chunks)", existing_chunks
             
             # Split into chunks
             chunks = []
@@ -192,10 +204,10 @@ class RAGService:
                 chunk.metadata.update({
                     'chunk_index': i,
                     'total_chunks': len(chunks),
-                    'user_id': user_email,
                     'file_name': file_name,
                     'source': file_name,
-                    'chunk_size': len(chunk.page_content)
+                    'chunk_size': len(chunk.page_content),
+                    'is_common_knowledge': True
                 })
             
             # Index chunks in batches
@@ -218,11 +230,15 @@ class RAGService:
                             return False, f"Failed to index batch {batch_num}: {e}", 0
                         time.sleep(1)
             
-            # Update database
-            try:
-                file_service.update_file_chunks_count(user_email, file_name, len(chunks))
-            except Exception as e:
-                print(f"Warning: Could not update database: {e}")
+            # FIXED: Update chunks count for both dev and production
+            if IS_PRODUCTION:
+                try:
+                    file_service.update_common_knowledge_file_chunks_count(file_name, len(chunks))
+                except Exception as e:
+                    print(f"Warning: Could not update database chunks count: {e}")
+            else:
+                # Store in memory for development
+                self._dev_chunks_count[file_name] = len(chunks)
             
             print(f"Successfully indexed {file_name}: {len(chunks)} chunks")
             return True, f"Successfully indexed {file_name}", len(chunks)
@@ -231,13 +247,38 @@ class RAGService:
             print(f"Error indexing {file_name}: {e}")
             return False, f"Error indexing {file_name}: {str(e)}", 0
     
-    def reindex_only_pending_files(self, user_email: str) -> Tuple[int, int, List[str]]:
-        """Re-index only files that are not yet indexed - FIXED"""
+    def get_file_chunks_count(self, file_name: str) -> int:
+        """Get chunks count for a file (dev-aware)"""
+        if IS_PRODUCTION:
+            # Production: Get from database
+            try:
+                file_info = file_service.get_common_knowledge_file_info(file_name)
+                return file_info.get("chunks_count", 0) if file_info else 0
+            except Exception:
+                return 0
+        else:
+            # Development: Get from memory or vector store
+            if file_name in self._dev_chunks_count:
+                return self._dev_chunks_count[file_name]
+            
+            # Check vector store directly
+            try:
+                vectorstore = self.get_common_knowledge_vectorstore()
+                collection = vectorstore._collection
+                existing_results = collection.get(where={"file_name": file_name})
+                chunks_count = len(existing_results['ids']) if existing_results and existing_results['ids'] else 0
+                self._dev_chunks_count[file_name] = chunks_count
+                return chunks_count
+            except Exception:
+                return 0
+    
+    def reindex_common_knowledge_pending_files(self) -> Tuple[int, int, List[str]]:
+        """Re-index only files that are not yet indexed in common knowledge repository"""
         try:
-            files = file_service.list_user_files(user_email)
+            files = file_service.list_common_knowledge_files()
             
             # Get currently indexed files from vector store
-            vectorstore = self.get_user_vectorstore(user_email)
+            vectorstore = self.get_common_knowledge_vectorstore()
             collection = vectorstore._collection
             
             indexed_files = set()
@@ -263,7 +304,7 @@ class RAGService:
             for file_info in pending_files:
                 file_name = file_info["file_name"]
                 try:
-                    success, msg, chunks = self.index_user_document(user_email, file_name)
+                    success, msg, chunks = self.index_common_knowledge_document(file_name)
                     if success and not msg.startswith("✅"):  # Don't count "already indexed" as reindexed
                         reindexed += 1
                     elif not success:
@@ -278,13 +319,13 @@ class RAGService:
             print(f"Error in reindex: {e}")
             return 0, 0, [str(e)]
     
-    def search_user_documents(self, user_email: str, query: str, top_k: int = None) -> List[Tuple[str, str, float, Dict]]:
-        """Search user's documents"""
+    def search_common_knowledge(self, query: str, top_k: int = None) -> List[Tuple[str, str, float, Dict]]:
+        """Search common knowledge repository"""
         if top_k is None:
             top_k = TOP_K
         
         try:
-            vectorstore = self.get_user_vectorstore(user_email)
+            vectorstore = self.get_common_knowledge_vectorstore()
             collection = vectorstore._collection
             
             if collection.count() == 0:
@@ -305,7 +346,8 @@ class RAGService:
                     'file_name': file_name,
                     'chunk_index': doc.metadata.get('chunk_index', 0),
                     'similarity_score': float(similarity),
-                    'chunk_size': doc.metadata.get('chunk_size', len(chunk))
+                    'chunk_size': doc.metadata.get('chunk_size', len(chunk)),
+                    'is_common_knowledge': True
                 }
                 
                 formatted_results.append((chunk, file_name, float(similarity), metadata))
@@ -313,19 +355,29 @@ class RAGService:
             return formatted_results
             
         except Exception as e:
-            print(f"Error searching documents: {e}")
+            print(f"Error searching common knowledge: {e}")
             return []
     
-    def remove_user_document(self, user_email: str, file_name: str) -> bool:
-        """Remove document from vector store"""
+    def remove_common_knowledge_document(self, file_name: str) -> bool:
+        """Remove document from common knowledge vector store"""
         try:
-            vectorstore = self.get_user_vectorstore(user_email)
+            vectorstore = self.get_common_knowledge_vectorstore()
             collection = vectorstore._collection
             results = collection.get(where={"file_name": file_name})
             
             if results['ids']:
                 collection.delete(ids=results['ids'])
                 print(f"Removed {len(results['ids'])} chunks for {file_name}")
+                
+                # FIXED: Update chunks count for both dev and production
+                if IS_PRODUCTION:
+                    try:
+                        file_service.update_common_knowledge_file_chunks_count(file_name, 0)
+                    except Exception as e:
+                        print(f"Warning: Could not update database chunks count: {e}")
+                else:
+                    # Remove from memory for development
+                    self._dev_chunks_count.pop(file_name, None)
             
             return True
             
@@ -333,31 +385,28 @@ class RAGService:
             print(f"Error removing document: {e}")
             return False
     
-    def get_user_document_count(self, user_email: str) -> int:
-        """Get document count in vector store"""
+    def get_common_knowledge_document_count(self) -> int:
+        """Get document count in common knowledge vector store"""
         try:
-            vectorstore = self.get_user_vectorstore(user_email)
+            vectorstore = self.get_common_knowledge_vectorstore()
             return vectorstore._collection.count()
         except Exception:
             return 0
 
-    def cleanup_orphaned_vectors(self, user_email: str) -> Tuple[int, int, List[str]]:
-        """Clean up vector entries for files that don't exist on disk"""
+    def cleanup_common_knowledge_orphaned_vectors(self) -> Tuple[int, int, List[str]]:
+        """Clean up vector entries for files that don't exist on disk in common knowledge repository"""
         try:
-            # Get user's document folder
-            user_documents_path = Path(RAG_DOCUMENTS_PATH) / user_email.replace("@", "_").replace(".", "_")
-            
-            if not user_documents_path.exists():
-                return 0, 0, []
-            
             # Get actual files on disk
             actual_files = set()
-            for file_path in user_documents_path.rglob("*"):
-                if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
-                    actual_files.add(file_path.name)
+            common_knowledge_path = file_service.get_common_knowledge_path()
+            
+            if common_knowledge_path.exists():
+                for file_path in common_knowledge_path.rglob("*"):
+                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                        actual_files.add(file_path.name)
             
             # Get vector store
-            vectorstore = self.get_user_vectorstore(user_email)
+            vectorstore = self.get_common_knowledge_vectorstore()
             collection = vectorstore._collection
             
             try:
@@ -387,6 +436,11 @@ class RAGService:
                         except Exception as e:
                             print(f"Error deleting batch: {e}")
                 
+                # FIXED: Clean up dev chunks count for orphaned files
+                if not IS_PRODUCTION:
+                    for orphaned_file in orphaned_files:
+                        self._dev_chunks_count.pop(orphaned_file, None)
+                
                 return cleanup_count, len(actual_files), list(orphaned_files)
                 
             except Exception as e:
@@ -403,11 +457,11 @@ rag_service = RAGService()
 # API Router for RAG endpoints
 router = APIRouter(tags=["RAG"])
 
-@router.post("/api/cleanup-vector-db/{user_email}")
-async def cleanup_user_vector_database(user_email: str):
-    """Clean up vector database for user - remove entries for non-existent files"""
+@router.post("/api/cleanup-common-knowledge-vector-db")
+async def cleanup_common_knowledge_vector_database():
+    """Clean up common knowledge vector database - remove entries for non-existent files"""
     try:
-        cleanup_count, remaining_files, orphaned_files = rag_service.cleanup_orphaned_vectors(user_email)
+        cleanup_count, remaining_files, orphaned_files = rag_service.cleanup_common_knowledge_orphaned_vectors()
         
         # Also clean up database records
         db_cleanup_count = 0
@@ -415,25 +469,24 @@ async def cleanup_user_vector_database(user_email: str):
             from supabase import create_client
             supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
             
-            user_documents_path = Path(RAG_DOCUMENTS_PATH) / user_email.replace("@", "_").replace(".", "_")
+            common_knowledge_path = file_service.get_common_knowledge_path()
             actual_files = set()
             
-            if user_documents_path.exists():
-                for file_path in user_documents_path.rglob("*"):
+            if common_knowledge_path.exists():
+                for file_path in common_knowledge_path.rglob("*"):
                     if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
                         actual_files.add(file_path.name)
             
             # Get database records
-            db_files = supabase.table("user_documents")\
+            db_files = supabase.table("common_knowledge_documents")\
                 .select("*")\
-                .eq("user_id", user_email)\
                 .execute()
             
             if db_files.data:
                 for db_file in db_files.data:
                     if db_file["file_name"] not in actual_files:
                         try:
-                            supabase.table("user_documents")\
+                            supabase.table("common_knowledge_documents")\
                                 .delete()\
                                 .eq("id", db_file["id"])\
                                 .execute()
@@ -463,23 +516,22 @@ async def cleanup_user_vector_database(user_email: str):
             "orphaned_files": []
         }
 
-@router.get("/api/vector-stats/{user_email}")
-async def get_user_vector_stats(user_email: str):
-    """Get vector database statistics for user"""
+@router.get("/api/common-knowledge-vector-stats")
+async def get_common_knowledge_vector_stats():
+    """Get vector database statistics for common knowledge repository"""
     try:
-        doc_count = rag_service.get_user_document_count(user_email)
+        doc_count = rag_service.get_common_knowledge_document_count()
         
         # Get file system stats
-        user_documents_path = Path(RAG_DOCUMENTS_PATH) / user_email.replace("@", "_").replace(".", "_")
+        common_knowledge_path = file_service.get_common_knowledge_path()
         fs_files = 0
         
-        if user_documents_path.exists():
-            for file_path in user_documents_path.rglob("*"):
+        if common_knowledge_path.exists():
+            for file_path in common_knowledge_path.rglob("*"):
                 if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
                     fs_files += 1
         
         return {
-            "user_email": user_email,
             "vector_entries": doc_count,
             "filesystem_files": fs_files,
             "sync_status": "synced" if doc_count > 0 and fs_files > 0 else "needs_cleanup"
@@ -487,7 +539,6 @@ async def get_user_vector_stats(user_email: str):
         
     except Exception as e:
         return {
-            "user_email": user_email,
             "vector_entries": 0,
             "filesystem_files": 0,
             "sync_status": "error",

@@ -48,6 +48,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 
 # RAG Configuration
 RAG_DOCUMENTS_PATH = os.getenv("RAG_DOCUMENTS_PATH", DEFAULT_RAG_DOCUMENTS_PATH).strip()
+COMMON_KNOWLEDGE_PATH = os.getenv("COMMON_KNOWLEDGE_PATH", DEFAULT_COMMON_KNOWLEDGE_PATH).strip()
 RAG_INDEX_PATH = os.getenv("RAG_INDEX_PATH", DEFAULT_RAG_INDEX_PATH).strip()
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL).strip()
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", str(DEFAULT_CHUNK_SIZE)))
@@ -73,15 +74,17 @@ for var_name, var_value in required_vars.items():
 
 # Create directories
 os.makedirs(RAG_DOCUMENTS_PATH, exist_ok=True)
+os.makedirs(COMMON_KNOWLEDGE_PATH, exist_ok=True)
 os.makedirs(RAG_INDEX_PATH, exist_ok=True)
 
 print(f"🤖 Sevabot Configuration Loaded ({ENVIRONMENT}):")
 print(f"   🌐 App Host: {APP_HOST}")
 print(f"   📄 Redirect URI: {REDIRECT_URI}")
-print(f"   📚 Documents Path: {RAG_DOCUMENTS_PATH}")
+print(f"   📚 User Documents Path: {RAG_DOCUMENTS_PATH}")
+print(f"   📖 Common Knowledge Path: {COMMON_KNOWLEDGE_PATH}")
 print(f"   📊 Chunk Size: {CHUNK_SIZE}, Overlap: {CHUNK_OVERLAP}")
 print(f"   🔍 Top K Retrieval: {TOP_K}")
 print(f"   🧠 Model: {CHAT_MODEL}, Temperature: {TEMPERATURE}")
 print(f"   👥 Max Sessions: {MAX_SESSIONS_PER_USER}, Max History: {MAX_HISTORY_TURNS}")
 print(f"   📧 Allowed Domain: {ALLOWED_DOMAIN}")
-print(f"   🔧 Ready for multi-user operation")
+print(f"   📧 Ready for multi-user operation with common knowledge repository")
