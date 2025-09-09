@@ -1,4 +1,4 @@
-# auth.py - Authentication module with dynamic URL support and 3-tier role-based access
+# auth.py - Fixed role update and session refresh
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse
 from supabase import create_client, Client
@@ -6,7 +6,7 @@ from config import (
     SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_ROLE_KEY,
     REDIRECT_URI, COOKIE_SECRET, COOKIE_NAME, ALLOWED_DOMAIN
 )
-from constants import SESSION_MAX_AGE, SESSION_SALT, ADMIN_EMAILS, SPOC_EMAILS, USER_ROLES
+from constants import SESSION_MAX_AGE, SESSION_SALT, ADMIN_EMAILS, USER_ROLES
 from datetime import datetime
 import itsdangerous
 import secrets
@@ -38,19 +38,47 @@ def ensure_spoc_assignments_table():
         print("SPOC assignments table not accessible. Creating if needed...")
         return False
 
+def ensure_email_whitelist_table():
+    """Ensure email_whitelist table exists"""
+    try:
+        admin_supabase.table("email_whitelist").select("id").limit(1).execute()
+        return True
+    except Exception:
+        print("Email whitelist table not accessible. Creating if needed...")
+        return False
+
 ensure_users_table()
 ensure_spoc_assignments_table()
+ensure_email_whitelist_table()
 
 def determine_user_role(email: str) -> str:
-    """Determine user role based on email lists"""
+    """Determine user role based on email lists and database"""
     email_lower = email.lower()
     
+    # Always check admin list from constants first
     if email_lower in [admin.lower() for admin in ADMIN_EMAILS]:
         return USER_ROLES['admin']
-    elif email_lower in [spoc.lower() for spoc in SPOC_EMAILS]:
-        return USER_ROLES['spoc']
-    else:
-        return USER_ROLES['user']
+    
+    # Check database for current role (for SPOCs promoted via UI)
+    try:
+        result = admin_supabase.table("users").select("role").eq("email", email_lower).execute()
+        if result.data and len(result.data) > 0:
+            db_role = result.data[0].get("role", "user")
+            if db_role in USER_ROLES.values():
+                return db_role
+    except Exception as e:
+        print(f"Error checking database role for {email}: {e}")
+    
+    # Default to user
+    return USER_ROLES['user']
+
+def is_email_whitelisted(email: str) -> bool:
+    """Check if email is in whitelist (for non-domain restriction)"""
+    try:
+        result = admin_supabase.table("email_whitelist").select("email").eq("email", email.lower()).execute()
+        return bool(result.data)
+    except Exception:
+        return False
 
 @router.get("/login")
 def login():
@@ -142,7 +170,7 @@ def auth_callback(request: Request):
 
 @router.post("/auth/session")
 async def create_session(payload: dict, response: Response):
-    """Create user session from OAuth token with 3-tier role detection"""
+    """Create user session from OAuth token with role detection and whitelist check"""
     access_token = payload.get("access_token")
     if not access_token:
         return JSONResponse({"status": "error", "message": "Missing access token"}, status_code=400)
@@ -171,9 +199,12 @@ async def create_session(payload: dict, response: Response):
 
         print(f"DEBUG: Processing user: {email}")
 
-        # Domain restriction check
-        if not email.lower().endswith("@" + ALLOWED_DOMAIN.lower()):
-            print(f"ERROR: Domain restriction failed for {email}")
+        # Enhanced access control: domain OR whitelist
+        domain_allowed = email.lower().endswith("@" + ALLOWED_DOMAIN.lower())
+        whitelist_allowed = is_email_whitelisted(email)
+        
+        if not (domain_allowed or whitelist_allowed):
+            print(f"ERROR: Access denied for {email} - not in domain or whitelist")
             try:
                 admin_supabase.auth.admin.delete_user(user_id)
             except Exception as cleanup_error:
@@ -181,14 +212,14 @@ async def create_session(payload: dict, response: Response):
             
             return JSONResponse({
                 "status": "forbidden", 
-                "message": f"Only @{ALLOWED_DOMAIN} email addresses are allowed"
+                "message": f"Access restricted. Contact administrator for access."
             }, status_code=403)
 
-        # Determine user role using the new 3-tier system
+        # Determine user role with database lookup for updated roles
         user_role = determine_user_role(email)
         print(f"DEBUG: User role determined: {user_role} for {email}")
 
-        # Store/update user in database with automatic role assignment
+        # Store/update user in database with current role
         try:
             user_data = {
                 "id": user_id,
@@ -205,7 +236,7 @@ async def create_session(payload: dict, response: Response):
             existing_user = admin_supabase.table("users").select("id, role").eq("id", user_id).execute()
             
             if existing_user.data:
-                # Always update role from constants (overrides database)
+                # Update with current role (including any role changes made via UI)
                 admin_supabase.table("users").update({
                     "last_login": datetime.utcnow().isoformat(),
                     "name": name,
@@ -222,7 +253,7 @@ async def create_session(payload: dict, response: Response):
         except Exception as db_error:
             print(f"WARNING: Could not store user data: {db_error}")
 
-        # Create secure session cookie with role
+        # Create secure session cookie with current role
         session_data = {"email": email, "user_id": user_id, "name": name, "role": user_role}
         signed_cookie = serializer.dumps(session_data)
         
@@ -246,13 +277,20 @@ async def create_session(payload: dict, response: Response):
 
 @router.get("/auth/session")
 async def get_session(request: Request):
-    """Get current user session with role"""
+    """Get current user session with updated role"""
     cookie = request.cookies.get(COOKIE_NAME)
     if not cookie:
         return JSONResponse({"user": None})
     
     try:
         data = serializer.loads(cookie)
+        user_email = data.get("email")
+        
+        # FIXED: Always get fresh role from database/constants on session check
+        if user_email:
+            current_role = determine_user_role(user_email)
+            data["role"] = current_role
+        
         return JSONResponse({
             "user": {
                 "email": data.get("email"), 
@@ -278,13 +316,20 @@ def logout():
         return RedirectResponse("/")
 
 def get_logged_in_user(request: Request):
-    """Helper to extract user from request with role"""
+    """Helper to extract user from request with updated role"""
     cookie = request.cookies.get(COOKIE_NAME)
     if not cookie:
         return None
     
     try:
         data = serializer.loads(cookie)
+        user_email = data.get("email")
+        
+        # FIXED: Always refresh role from database/constants
+        if user_email:
+            current_role = determine_user_role(user_email)
+            data["role"] = current_role
+        
         return {
             "email": data.get("email"),
             "user_id": data.get("user_id"), 
