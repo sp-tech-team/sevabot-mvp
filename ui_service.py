@@ -92,7 +92,7 @@ class UIService:
         users_tab_visible = user_role == "admin"
         
         # Section visibility within tabs
-        admin_chat_section_visible = user_role in ["admin", "spoc"]
+        admin_chat_section_visible = True #user_role in ["admin", "spoc"]
         admin_upload_section_visible = user_role == "admin"
         reindex_visible = user_role == "admin"
         cleanup_visible = user_role == "admin"
