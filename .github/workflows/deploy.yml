@@ -79,6 +79,7 @@ jobs:
           -e ALLOWED_DOMAIN="${{ secrets.ALLOWED_DOMAIN }}" \
           -v /home/ubuntu/sevabot_data/user_documents:/app/user_documents \
           -v /home/ubuntu/sevabot_data/rag_index:/app/rag_index \
+          -v /home/ubuntu/sevabot_data/common_knowledge:/app/common_knowledge \
           $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
         
         # Configure Nginx

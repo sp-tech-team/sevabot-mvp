@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create directories for user data
-RUN mkdir -p user_documents rag_index
+RUN mkdir -p user_documents rag_index common_knowledge
 
 # Expose port
 EXPOSE 8001
