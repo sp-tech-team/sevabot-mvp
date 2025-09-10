@@ -357,15 +357,14 @@ def create_gradio_interface():
                         interactive=True,
                         scale=4
                     )
-                    refresh_user_files_btn = gr.Button("🔄", variant="secondary", scale=1, size="sm")
+                    refresh_user_files_btn = gr.Button("🔄", variant="secondary", scale=1)
                 
                 user_files_table = gr.Dataframe(
                     label="",
                     headers=["Document Name", "Size", "Type", "Added Date"],
                     datatype=["str", "str", "str", "str"],
                     interactive=False,
-                    wrap=True,
-                    height=400
+                    wrap=True
                 )
             
             # File Manager (Common) Tab
@@ -488,10 +487,8 @@ def create_gradio_interface():
                     
                     with gr.Row():
                         user_refresh_btn = gr.Button("🔄 Refresh")
-                        user_reindex_btn = gr.Button("🔍 Re-index", variant="primary")
-                        user_cleanup_btn = gr.Button("🧹 Cleanup", variant="secondary") 
                         user_vector_stats_btn = gr.Button("📊 Vector Stats", variant="secondary")
-
+                    
                     # User Files Table
                     user_files_table = gr.Dataframe(
                         label="User Documents",
@@ -665,20 +662,40 @@ def create_gradio_interface():
         
         # Load user files for regular users
         def load_user_files():
-            """Load files for regular user Files tab."""
+            """
+            Load files for regular user Files tab.
+            Returns a Gradio Dataframe-compatible list-of-rows:
+            [Document Name, Size, Type, Added Date]
+            """
             try:
-                # Get current user role
-                role = ui_service.get_user_role()
-                
-                # Show files for all users (not just regular users)
-                files = common_knowledge_service.get_file_list_for_users()
-                
+                # Attempt to fetch the user's role via ui_service - if the service is not available,
+                # fall back to always showing files (better for debugging)
+                try:
+                    role = ui_service.get_user_role()
+                except Exception as e:
+                    print(f"Warning: ui_service.get_user_role() failed: {e}")
+                    role = "user"  # be permissive for debugging
+
+                # Only show this tab for regular users — if you want admins to also see, remove this check
+                if role != "user":
+                    return gr.update(value=[])
+
+                # Ask the common_knowledge_service for the formatted file list for users
+                files = []
+                try:
+                    files = common_knowledge_service.get_file_list_for_users()
+                except Exception as e:
+                    print(f"Error calling common_knowledge_service.get_file_list_for_users(): {e}")
+                    files = []
+
+                # Sanity: ensure files is a list of lists
                 if not files:
                     return gr.update(value=[])
 
-                # Format rows: ensure exactly 4 columns
+                # Guard/format rows: ensure exactly 4 columns match the Dataframe headers
                 formatted = []
                 for row in files:
+                    # Expecting row = [name, size_str, file_type, upload_date]
                     try:
                         name = str(row[0]) if len(row) > 0 else ""
                         size = str(row[1]) if len(row) > 1 else ""
@@ -692,10 +709,17 @@ def create_gradio_interface():
                 return gr.update(value=formatted)
 
             except Exception as e:
-                print(f"Error in load_user_files(): {e}")
+                print(f"Unexpected error in load_user_files(): {e}")
                 return gr.update(value=[])
         
         demo.load(fn=load_user_files, outputs=[user_files_table])
+
+        def refresh_files_tab():
+            """Refresh files display in Files tab"""
+            files = common_knowledge_service.get_file_list_for_users()
+            return gr.update(value=files)
+
+        refresh_user_files_btn.click(fn=refresh_files_tab, outputs=[user_files_table])
         
         # Load admin data
         def load_admin_data():
@@ -879,70 +903,6 @@ def create_gradio_interface():
                 return gr.update(value=files), gr.update(choices=choices), result, gr.update(value=notification, visible=True)
             return gr.update(), gr.update(), "Access denied", gr.update(value='<div class="notification">❌ Access denied</div>', visible=True)
         
-        def handle_cleanup_vector_db():
-            if not ui_service.is_admin():
-                notification = '<div class="notification">❌ Access denied - Admin only</div>'
-                return gr.update(visible=False), gr.update(value=notification, visible=True)
-            
-            try:
-                # Make API call to cleanup endpoint
-                import requests
-                response = requests.post("http://localhost:8001/api/cleanup-common-knowledge-vector-db")
-                result = response.json()
-                
-                if result.get("status") == "success":
-                    cleanup_count = result.get("vector_entries_cleaned", 0)
-                    db_count = result.get("db_records_cleaned", 0)
-                    remaining = result.get("remaining_files", 0)
-                    
-                    status_msg = f"🧹 Cleanup Complete:\n"
-                    status_msg += f"• Vector entries cleaned: {cleanup_count}\n"
-                    status_msg += f"• Database records cleaned: {db_count}\n"
-                    status_msg += f"• Files remaining: {remaining}"
-                    
-                    notification = '<div class="notification">🧹 Vector database cleaned successfully</div>'
-                else:
-                    status_msg = f"❌ Cleanup failed: {result.get('message', 'Unknown error')}"
-                    notification = '<div class="notification">❌ Cleanup failed</div>'
-                
-                return gr.update(value=status_msg, visible=True), gr.update(value=notification, visible=True)
-                
-            except Exception as e:
-                status_msg = f"❌ Cleanup error: {str(e)}"
-                notification = '<div class="notification">❌ Cleanup failed</div>'
-                return gr.update(value=status_msg, visible=True), gr.update(value=notification, visible=True)
-
-        def handle_vector_stats():
-            if not ui_service.is_admin_or_spoc():
-                notification = '<div class="notification">❌ Access denied</div>'
-                return gr.update(visible=False), gr.update(value=notification, visible=True)
-            
-            try:
-                # Make API call to stats endpoint
-                import requests
-                response = requests.get("http://localhost:8001/api/common-knowledge-vector-stats")
-                result = response.json()
-                
-                vector_count = result.get("vector_entries", 0)
-                fs_count = result.get("filesystem_files", 0)
-                sync_status = result.get("sync_status", "unknown")
-                
-                status_msg = f"📊 Vector Database Statistics:\n"
-                status_msg += f"• Vector entries: {vector_count}\n"
-                status_msg += f"• Filesystem files: {fs_count}\n"
-                status_msg += f"• Sync status: {sync_status.upper()}"
-                
-                if result.get("error"):
-                    status_msg += f"\n• Error: {result['error']}"
-                
-                notification = '<div class="notification">📊 Stats updated</div>'
-                return gr.update(value=status_msg, visible=True), gr.update(value=notification, visible=True)
-                
-            except Exception as e:
-                status_msg = f"❌ Stats error: {str(e)}"
-                notification = '<div class="notification">❌ Stats failed</div>'
-                return gr.update(value=status_msg, visible=True), gr.update(value=notification, visible=True)
-        
         def select_all_files():
             if ui_service.is_admin_or_spoc():
                 files = common_knowledge_service.get_file_list()
@@ -955,10 +915,8 @@ def create_gradio_interface():
         delete_btn.click(fn=handle_ck_delete, inputs=[selected_files], outputs=[files_table, delete_status, selected_files, file_notification])
         refresh_btn.click(fn=handle_ck_refresh, outputs=[files_table, selected_files, file_notification])
         reindex_btn.click(fn=handle_ck_reindex, outputs=[files_table, selected_files, action_status, file_notification])
-        cleanup_btn.click(fn=handle_cleanup_vector_db, outputs=[vector_status, file_notification])
-        vector_stats_btn.click(fn=handle_vector_stats, outputs=[vector_status, file_notification])
         select_all_btn.click(fn=select_all_files, outputs=[selected_files])
-
+        
         # FIXED: User file manager operations
         def select_user_for_file_manager(user_email):
             if ui_service.is_admin() and user_email:

@@ -86,13 +86,13 @@ class UIService:
         sessions_update = self.load_initial_data()[1]
         
         # Tab visibility
-        files_tab_visible = user_role == "user"
+        files_tab_visible = True #user_role == "user"
         file_manager_common_visible = user_role in ["admin", "spoc"]
         file_manager_users_visible = user_role == "admin"  # Only admin
         users_tab_visible = user_role == "admin"
         
         # Section visibility within tabs
-        admin_chat_section_visible = True #user_role in ["admin", "spoc"]
+        admin_chat_section_visible = user_role in ["admin", "spoc"]
         admin_upload_section_visible = user_role == "admin"
         reindex_visible = user_role == "admin"
         cleanup_visible = user_role == "admin"
