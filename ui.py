@@ -662,10 +662,55 @@ def create_gradio_interface():
         
         # Load user files for regular users
         def load_user_files():
-            if ui_service.get_user_role() == "user":
-                files = common_knowledge_service.get_file_list_for_users()
-                return gr.update(value=files)
-            return gr.update(value=[])
+            """
+            Load files for regular user Files tab.
+            Returns a Gradio Dataframe-compatible list-of-rows:
+            [Document Name, Size, Type, Added Date]
+            """
+            try:
+                # Attempt to fetch the user's role via ui_service - if the service is not available,
+                # fall back to always showing files (better for debugging)
+                try:
+                    role = ui_service.get_user_role()
+                except Exception as e:
+                    print(f"Warning: ui_service.get_user_role() failed: {e}")
+                    role = "user"  # be permissive for debugging
+
+                # Only show this tab for regular users — if you want admins to also see, remove this check
+                if role != "user":
+                    return gr.update(value=[])
+
+                # Ask the common_knowledge_service for the formatted file list for users
+                files = []
+                try:
+                    files = common_knowledge_service.get_file_list_for_users()
+                except Exception as e:
+                    print(f"Error calling common_knowledge_service.get_file_list_for_users(): {e}")
+                    files = []
+
+                # Sanity: ensure files is a list of lists
+                if not files:
+                    return gr.update(value=[])
+
+                # Guard/format rows: ensure exactly 4 columns match the Dataframe headers
+                formatted = []
+                for row in files:
+                    # Expecting row = [name, size_str, file_type, upload_date]
+                    try:
+                        name = str(row[0]) if len(row) > 0 else ""
+                        size = str(row[1]) if len(row) > 1 else ""
+                        ftype = str(row[2]) if len(row) > 2 else ""
+                        added = str(row[3]) if len(row) > 3 else ""
+                        formatted.append([name, size, ftype, added])
+                    except Exception as e:
+                        print(f"Skipping corrupt file row {row}: {e}")
+                        continue
+
+                return gr.update(value=formatted)
+
+            except Exception as e:
+                print(f"Unexpected error in load_user_files(): {e}")
+                return gr.update(value=[])
         
         demo.load(fn=load_user_files, outputs=[user_files_table])
         
