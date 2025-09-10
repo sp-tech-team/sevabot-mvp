@@ -1,4 +1,4 @@
-# rag_service.py - Enhanced RAG service for common knowledge repository
+# rag_service.py - Enhanced RAG service with comprehensive vector operations
 import os
 import warnings
 from pathlib import Path
@@ -21,12 +21,11 @@ from fastapi import APIRouter
 from config import (
     RAG_INDEX_PATH, OPENAI_API_KEY, EMBEDDING_MODEL,
     CHUNK_SIZE, CHUNK_OVERLAP, TOP_K, COMMON_KNOWLEDGE_PATH,
-    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
+    RAG_DOCUMENTS_PATH, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
 )
-from file_service import file_service
 
 class RAGService:
-    """Enhanced RAG service for common knowledge repository"""
+    """Enhanced RAG service with comprehensive vector operations"""
     
     def __init__(self):
         self.index_path = Path(RAG_INDEX_PATH)
@@ -45,8 +44,10 @@ class RAGService:
         )
         
         self._common_vectorstore = None
-        # FIXED: Store chunks count locally for development mode
+        self._user_vectorstores = {}
         self._dev_chunks_count = {}
+    
+    # ========== COMMON KNOWLEDGE OPERATIONS ==========
     
     def get_common_knowledge_vectorstore(self) -> Chroma:
         """Get or create common knowledge vector store"""
@@ -59,265 +60,162 @@ class RAGService:
                 embedding_function=self.embeddings,
                 collection_name="common_knowledge"
             )
-        
         return self._common_vectorstore
     
-    def load_document(self, file_path: str) -> Tuple[List[Document], bool]:
-        """Load document with OCR rejection - returns (docs, used_ocr)"""
+    def get_common_knowledge_stats(self) -> Dict:
+        """Get comprehensive stats for common knowledge repository"""
         try:
-            file_path_obj = Path(file_path)
+            vectorstore = self.get_common_knowledge_vectorstore()
+            vector_count = vectorstore._collection.count()
             
-            if not file_path_obj.exists():
-                print(f"File not found: {file_path_obj}")
-                return [], False
+            # Filesystem stats
+            common_knowledge_path = Path(COMMON_KNOWLEDGE_PATH)
+            fs_files = 0
+            fs_file_names = set()
             
-            file_size = file_path_obj.stat().st_size
-            if file_size == 0:
-                print(f"File is empty: {file_path_obj}")
-                return [], False
+            if common_knowledge_path.exists():
+                for file_path in common_knowledge_path.iterdir():
+                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                        fs_files += 1
+                        fs_file_names.add(file_path.name)
             
-            print(f"Loading document: {file_path_obj.name} ({file_size / (1024*1024):.2f} MB)")
-            
-            docs = []
-            used_ocr = False
-            
-            if file_path_obj.suffix.lower() in ['.txt', '.md']:
-                loader = TextLoader(str(file_path_obj), encoding='utf-8', autodetect_encoding=True)
-                docs = loader.load()
-                
-            elif file_path_obj.suffix.lower() == '.pdf':
-                # Try multiple PDF loaders
-                content_found = False
-                
-                # PyPDFLoader first
+            # Database stats
+            db_files = 0
+            if IS_PRODUCTION:
                 try:
-                    loader = PyPDFLoader(str(file_path_obj))
-                    docs = loader.load()
-                    if docs and any(doc.page_content.strip() and len(doc.page_content.strip()) > 50 for doc in docs):
-                        content_found = True
-                        print(f"Extracted with PyPDFLoader")
+                    from supabase import create_client
+                    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+                    result = supabase.table("common_knowledge_documents").select("file_name").execute()
+                    db_files = len(result.data) if result.data else 0
                 except Exception as e:
-                    print(f"PyPDFLoader failed: {e}")
-                
-                # PyMuPDFLoader as fallback
-                if not content_found:
-                    try:
-                        loader = PyMuPDFLoader(str(file_path_obj))
-                        docs = loader.load()
-                        if docs and any(doc.page_content.strip() and len(doc.page_content.strip()) > 50 for doc in docs):
-                            content_found = True
-                            print(f"Extracted with PyMuPDFLoader")
-                    except Exception as e:
-                        print(f"PyMuPDFLoader failed: {e}")
-                
-                # If normal PDF extraction fails, reject the file instead of using OCR
-                if not content_found:
-                    print(f"All standard PDF extraction methods failed for: {file_path_obj}")
-                    print(f"OCR would be required - rejecting file as per policy")
-                    return [], True  # Return True to indicate OCR would be needed
-                
-            elif file_path_obj.suffix.lower() == '.docx':
-                loader = Docx2txtLoader(str(file_path_obj))
-                docs = loader.load()
-            else:
-                print(f"Unsupported file type: {file_path_obj.suffix}")
-                return [], False
+                    print(f"Error getting database stats: {e}")
             
-            if not docs:
-                return [], used_ocr
+            # Determine sync status
+            sync_status = self._determine_sync_status(vector_count, fs_files, db_files)
             
-            # Add metadata
-            valid_docs = []
-            for doc in docs:
-                if doc.page_content and len(doc.page_content.strip()) > 0:
-                    doc.metadata.update({
-                        'source': file_path_obj.name,
-                        'file_name': file_path_obj.name,
-                        'file_path': str(file_path_obj),
-                        'file_size': file_size,
-                        'indexed_at': datetime.utcnow().isoformat(),
-                        'content_length': len(doc.page_content),
-                        'is_common_knowledge': True
-                    })
-                    valid_docs.append(doc)
-            
-            print(f"Loaded {len(valid_docs)} valid documents from {file_path_obj.name}")
-            return valid_docs, used_ocr
+            return {
+                "vector_entries": vector_count,
+                "filesystem_files": fs_files,
+                "database_files": db_files,
+                "sync_status": sync_status,
+                "indexed_files": len(fs_file_names),
+                "status_message": self._get_status_message(sync_status, vector_count, fs_files)
+            }
             
         except Exception as e:
-            print(f"Error loading document {file_path}: {e}")
-            return [], False
+            return {
+                "vector_entries": 0,
+                "filesystem_files": 0,
+                "database_files": 0,
+                "sync_status": "error",
+                "error": str(e),
+                "status_message": f"Error getting stats: {str(e)}"
+            }
+    
+    def cleanup_common_knowledge_vectors(self) -> Dict:
+        """Clean up orphaned vector entries and return detailed results"""
+        try:
+            # Get actual files on disk
+            actual_files = set()
+            common_knowledge_path = Path(COMMON_KNOWLEDGE_PATH)
+            
+            if common_knowledge_path.exists():
+                for file_path in common_knowledge_path.iterdir():
+                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                        actual_files.add(file_path.name)
+            
+            vectorstore = self.get_common_knowledge_vectorstore()
+            collection = vectorstore._collection
+            
+            orphaned_ids = []
+            orphaned_files = set()
+            
+            try:
+                all_docs = collection.get()
+                if all_docs and all_docs.get('metadatas'):
+                    for doc_id, metadata in zip(all_docs['ids'], all_docs['metadatas']):
+                        file_name = metadata.get('file_name') or metadata.get('source', '')
+                        if file_name and file_name not in actual_files:
+                            orphaned_ids.append(doc_id)
+                            orphaned_files.add(file_name)
+            except Exception as e:
+                return {"status": "error", "message": f"Error accessing vector store: {str(e)}"}
+            
+            # Remove orphaned entries in batches
+            cleanup_count = 0
+            if orphaned_ids:
+                batch_size = 100
+                for i in range(0, len(orphaned_ids), batch_size):
+                    batch_ids = orphaned_ids[i:i+batch_size]
+                    try:
+                        collection.delete(ids=batch_ids)
+                        cleanup_count += len(batch_ids)
+                    except Exception as e:
+                        print(f"Error deleting batch: {e}")
+            
+            # Clean up database records
+            db_cleanup_count = self._cleanup_orphaned_db_records(orphaned_files)
+            
+            # Update dev chunks count
+            if not IS_PRODUCTION:
+                for orphaned_file in orphaned_files:
+                    self._dev_chunks_count.pop(orphaned_file, None)
+            
+            return {
+                "status": "success",
+                "vector_entries_cleaned": cleanup_count,
+                "db_records_cleaned": db_cleanup_count,
+                "remaining_files": len(actual_files),
+                "orphaned_files": list(orphaned_files),
+                "message": f"Cleaned {cleanup_count} vector entries and {db_cleanup_count} DB records. {len(actual_files)} files remain."
+            }
+            
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
     
     def index_common_knowledge_document(self, file_name: str) -> Tuple[bool, str, int]:
         """Index document in common knowledge repository"""
         try:
-            file_path = file_service.get_common_knowledge_path() / file_name
+            file_path = Path(COMMON_KNOWLEDGE_PATH) / file_name
             
             if not file_path.exists():
-                return False, f"File {file_name} not found in common knowledge repository", 0
+                return False, f"File {file_name} not found", 0
             
-            print(f"Indexing: {file_name}")
-            
-            # Load document with OCR check
             docs, used_ocr = self.load_document(str(file_path))
             
-            # Reject if OCR would be needed
             if used_ocr:
-                return False, f"{file_name} requires OCR processing which is not supported. Please upload text-extractable PDFs only (max 10MB, .txt/.md/.pdf/.docx allowed).", 0
+                return False, f"{file_name} requires OCR processing which is not supported", 0
             
             if not docs:
                 return False, f"Could not extract content from {file_name}", 0
             
-            # Check if already indexed
             vectorstore = self.get_common_knowledge_vectorstore()
             collection = vectorstore._collection
             
-            # Check for existing chunks
+            # Check if already indexed
             existing_results = collection.get(where={"file_name": file_name})
             if existing_results and existing_results['ids']:
                 existing_chunks = len(existing_results['ids'])
-                print(f"File {file_name} already indexed with {existing_chunks} chunks - skipping")
-                
-                # FIXED: Update chunks count for both dev and production
-                if IS_PRODUCTION:
-                    try:
-                        file_service.update_common_knowledge_file_chunks_count(file_name, existing_chunks)
-                    except Exception as e:
-                        print(f"Warning: Could not update database chunks count: {e}")
-                else:
-                    # Store in memory for development
-                    self._dev_chunks_count[file_name] = existing_chunks
-                
+                self._update_chunks_count(file_name, existing_chunks, is_common=True)
                 return True, f"{file_name} already indexed ({existing_chunks} chunks)", existing_chunks
             
             # Split into chunks
-            chunks = []
-            for doc in docs:
-                doc_chunks = self.text_splitter.split_documents([doc])
-                chunks.extend(doc_chunks)
+            chunks = self._create_chunks(docs, file_name, is_common=True)
             
             if not chunks:
                 return False, f"No chunks created from {file_name}", 0
             
-            # Add metadata to chunks
-            for i, chunk in enumerate(chunks):
-                chunk.metadata.update({
-                    'chunk_index': i,
-                    'total_chunks': len(chunks),
-                    'file_name': file_name,
-                    'source': file_name,
-                    'chunk_size': len(chunk.page_content),
-                    'is_common_knowledge': True
-                })
-            
             # Index chunks in batches
-            batch_size = 20
-            successful_batches = 0
-            total_batches = (len(chunks) + batch_size - 1) // batch_size
+            success = self._index_chunks_batch(vectorstore, chunks)
+            if not success:
+                return False, f"Failed to index {file_name}", 0
             
-            for i in range(0, len(chunks), batch_size):
-                batch = chunks[i:i+batch_size]
-                batch_num = (i // batch_size) + 1
-                
-                for attempt in range(3):
-                    try:
-                        vectorstore.add_documents(batch)
-                        successful_batches += 1
-                        print(f"Processed batch {batch_num}/{total_batches}")
-                        break
-                    except Exception as e:
-                        if attempt == 2:
-                            return False, f"Failed to index batch {batch_num}: {e}", 0
-                        time.sleep(1)
+            self._update_chunks_count(file_name, len(chunks), is_common=True)
             
-            # FIXED: Update chunks count for both dev and production
-            if IS_PRODUCTION:
-                try:
-                    file_service.update_common_knowledge_file_chunks_count(file_name, len(chunks))
-                except Exception as e:
-                    print(f"Warning: Could not update database chunks count: {e}")
-            else:
-                # Store in memory for development
-                self._dev_chunks_count[file_name] = len(chunks)
-            
-            print(f"Successfully indexed {file_name}: {len(chunks)} chunks")
             return True, f"Successfully indexed {file_name}", len(chunks)
             
         except Exception as e:
-            print(f"Error indexing {file_name}: {e}")
             return False, f"Error indexing {file_name}: {str(e)}", 0
-    
-    def get_file_chunks_count(self, file_name: str) -> int:
-        """Get chunks count for a file (dev-aware)"""
-        if IS_PRODUCTION:
-            # Production: Get from database
-            try:
-                file_info = file_service.get_common_knowledge_file_info(file_name)
-                return file_info.get("chunks_count", 0) if file_info else 0
-            except Exception:
-                return 0
-        else:
-            # Development: Get from memory or vector store
-            if file_name in self._dev_chunks_count:
-                return self._dev_chunks_count[file_name]
-            
-            # Check vector store directly
-            try:
-                vectorstore = self.get_common_knowledge_vectorstore()
-                collection = vectorstore._collection
-                existing_results = collection.get(where={"file_name": file_name})
-                chunks_count = len(existing_results['ids']) if existing_results and existing_results['ids'] else 0
-                self._dev_chunks_count[file_name] = chunks_count
-                return chunks_count
-            except Exception:
-                return 0
-    
-    def reindex_common_knowledge_pending_files(self) -> Tuple[int, int, List[str]]:
-        """Re-index only files that are not yet indexed in common knowledge repository"""
-        try:
-            files = file_service.list_common_knowledge_files()
-            
-            # Get currently indexed files from vector store
-            vectorstore = self.get_common_knowledge_vectorstore()
-            collection = vectorstore._collection
-            
-            indexed_files = set()
-            try:
-                all_docs = collection.get()
-                if all_docs and all_docs.get('metadatas'):
-                    for metadata in all_docs['metadatas']:
-                        file_name = metadata.get('file_name') or metadata.get('source', '')
-                        if file_name:
-                            indexed_files.add(file_name)
-            except Exception as e:
-                print(f"Error getting indexed files: {e}")
-            
-            # Filter to only pending files (not in vector store)
-            pending_files = [f for f in files if f["file_name"] not in indexed_files]
-            
-            if not pending_files:
-                return 0, len(files), []
-            
-            reindexed = 0
-            errors = []
-            
-            for file_info in pending_files:
-                file_name = file_info["file_name"]
-                try:
-                    success, msg, chunks = self.index_common_knowledge_document(file_name)
-                    if success and not msg.startswith("✅"):  # Don't count "already indexed" as reindexed
-                        reindexed += 1
-                    elif not success:
-                        errors.append(f"{file_name}: {msg}")
-                        
-                except Exception as e:
-                    errors.append(f"{file_name}: {str(e)}")
-            
-            return reindexed, len(pending_files), errors
-            
-        except Exception as e:
-            print(f"Error in reindex: {e}")
-            return 0, 0, [str(e)]
     
     def search_common_knowledge(self, query: str, top_k: int = None) -> List[Tuple[str, str, float, Dict]]:
         """Search common knowledge repository"""
@@ -367,17 +265,7 @@ class RAGService:
             
             if results['ids']:
                 collection.delete(ids=results['ids'])
-                print(f"Removed {len(results['ids'])} chunks for {file_name}")
-                
-                # FIXED: Update chunks count for both dev and production
-                if IS_PRODUCTION:
-                    try:
-                        file_service.update_common_knowledge_file_chunks_count(file_name, 0)
-                    except Exception as e:
-                        print(f"Warning: Could not update database chunks count: {e}")
-                else:
-                    # Remove from memory for development
-                    self._dev_chunks_count.pop(file_name, None)
+                self._update_chunks_count(file_name, 0, is_common=True)
             
             return True
             
@@ -385,71 +273,491 @@ class RAGService:
             print(f"Error removing document: {e}")
             return False
     
-    def get_common_knowledge_document_count(self) -> int:
-        """Get document count in common knowledge vector store"""
+    def reindex_common_knowledge_pending_files(self) -> Tuple[int, int, List[str]]:
+        """Re-index files that are not yet indexed"""
         try:
-            vectorstore = self.get_common_knowledge_vectorstore()
-            return vectorstore._collection.count()
-        except Exception:
-            return 0
-
-    def cleanup_common_knowledge_orphaned_vectors(self) -> Tuple[int, int, List[str]]:
-        """Clean up vector entries for files that don't exist on disk in common knowledge repository"""
-        try:
-            # Get actual files on disk
-            actual_files = set()
-            common_knowledge_path = file_service.get_common_knowledge_path()
+            common_knowledge_path = Path(COMMON_KNOWLEDGE_PATH)
             
-            if common_knowledge_path.exists():
-                for file_path in common_knowledge_path.rglob("*"):
-                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
-                        actual_files.add(file_path.name)
+            if not common_knowledge_path.exists():
+                return 0, 0, []
             
-            # Get vector store
+            # Get all files
+            all_files = []
+            for file_path in common_knowledge_path.iterdir():
+                if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                    all_files.append(file_path.name)
+            
+            if not all_files:
+                return 0, 0, []
+            
+            # Get currently indexed files
             vectorstore = self.get_common_knowledge_vectorstore()
             collection = vectorstore._collection
             
+            indexed_files = set()
             try:
                 all_docs = collection.get()
-                if not all_docs or not all_docs.get('metadatas'):
-                    return 0, 0, []
-                
-                # Find orphaned entries
-                orphaned_ids = []
-                orphaned_files = set()
-                
-                for doc_id, metadata in zip(all_docs['ids'], all_docs['metadatas']):
-                    file_name = metadata.get('file_name') or metadata.get('source', '')
-                    if file_name and file_name not in actual_files:
-                        orphaned_ids.append(doc_id)
-                        orphaned_files.add(file_name)
-                
-                # Remove orphaned entries in batches
-                cleanup_count = 0
-                if orphaned_ids:
-                    batch_size = 100
-                    for i in range(0, len(orphaned_ids), batch_size):
-                        batch_ids = orphaned_ids[i:i+batch_size]
-                        try:
-                            collection.delete(ids=batch_ids)
-                            cleanup_count += len(batch_ids)
-                        except Exception as e:
-                            print(f"Error deleting batch: {e}")
-                
-                # FIXED: Clean up dev chunks count for orphaned files
-                if not IS_PRODUCTION:
-                    for orphaned_file in orphaned_files:
-                        self._dev_chunks_count.pop(orphaned_file, None)
-                
-                return cleanup_count, len(actual_files), list(orphaned_files)
-                
+                if all_docs and all_docs.get('metadatas'):
+                    for metadata in all_docs['metadatas']:
+                        file_name = metadata.get('file_name') or metadata.get('source', '')
+                        if file_name:
+                            indexed_files.add(file_name)
             except Exception as e:
-                print(f"Error accessing vector store: {e}")
-                return 0, 0, []
+                print(f"Error getting indexed files: {e}")
+            
+            # Filter to only pending files
+            pending_files = [f for f in all_files if f not in indexed_files]
+            
+            if not pending_files:
+                return 0, len(all_files), []
+            
+            reindexed = 0
+            errors = []
+            
+            for file_name in pending_files:
+                try:
+                    success, msg, chunks = self.index_common_knowledge_document(file_name)
+                    if success and not msg.startswith("already indexed"):
+                        reindexed += 1
+                    elif not success:
+                        errors.append(f"{file_name}: {msg}")
+                except Exception as e:
+                    errors.append(f"{file_name}: {str(e)}")
+            
+            return reindexed, len(pending_files), errors
             
         except Exception as e:
-            print(f"Error in cleanup: {e}")
-            return 0, 0, []
+            return 0, 0, [str(e)]
+    
+    def get_file_chunks_count(self, file_name: str, is_common: bool = True) -> int:
+        """Get chunks count for a file"""
+        if IS_PRODUCTION:
+            try:
+                if is_common:
+                    from supabase import create_client
+                    supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+                    result = supabase.table("common_knowledge_documents")\
+                        .select("chunks_count")\
+                        .eq("file_name", file_name)\
+                        .execute()
+                    return result.data[0].get("chunks_count", 0) if result.data else 0
+                else:
+                    # For user files, check vector store directly
+                    return self._get_user_file_chunks_from_vector(file_name)
+            except Exception:
+                return 0
+        else:
+            # Development mode
+            if file_name in self._dev_chunks_count:
+                return self._dev_chunks_count[file_name]
+            
+            # Check vector store directly
+            try:
+                if is_common:
+                    vectorstore = self.get_common_knowledge_vectorstore()
+                else:
+                    # For user files in dev mode, we'd need user email context
+                    # For now, return 0
+                    return 0
+                
+                collection = vectorstore._collection
+                existing_results = collection.get(where={"file_name": file_name})
+                chunks_count = len(existing_results['ids']) if existing_results and existing_results['ids'] else 0
+                self._dev_chunks_count[file_name] = chunks_count
+                return chunks_count
+            except Exception:
+                return 0
+    
+    # ========== USER FILE OPERATIONS ==========
+    
+    def get_user_vectorstore(self, user_email: str) -> Chroma:
+        """Get or create user-specific vector store"""
+        if user_email not in self._user_vectorstores:
+            user_collection = f"user_{user_email.replace('@', '_').replace('.', '_')}"
+            chroma_path = self.index_path / "users" / user_collection
+            chroma_path.mkdir(parents=True, exist_ok=True)
+            
+            self._user_vectorstores[user_email] = Chroma(
+                persist_directory=str(chroma_path),
+                embedding_function=self.embeddings,
+                collection_name=user_collection
+            )
+        
+        return self._user_vectorstores[user_email]
+    
+    def get_user_vector_stats(self, user_email: str) -> Dict:
+        """Get vector database statistics for specific user"""
+        try:
+            vectorstore = self.get_user_vectorstore(user_email)
+            doc_count = vectorstore._collection.count()
+            
+            # Get file system stats
+            user_docs_path = self._get_user_documents_path(user_email)
+            fs_files = 0
+            
+            if user_docs_path.exists():
+                for file_path in user_docs_path.rglob("*"):
+                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                        fs_files += 1
+            
+            sync_status = self._determine_sync_status(doc_count, fs_files, 0)
+            
+            return {
+                "vector_entries": doc_count,
+                "filesystem_files": fs_files,
+                "sync_status": sync_status,
+                "user_email": user_email,
+                "status_message": self._get_status_message(sync_status, doc_count, fs_files)
+            }
+            
+        except Exception as e:
+            return {
+                "vector_entries": 0,
+                "filesystem_files": 0,
+                "sync_status": "error",
+                "error": str(e),
+                "user_email": user_email
+            }
+    
+    def cleanup_user_orphaned_vectors(self, user_email: str) -> Dict:
+        """Clean up vector entries for user files that don't exist on disk"""
+        try:
+            actual_files = set()
+            user_docs_path = self._get_user_documents_path(user_email)
+            
+            if user_docs_path.exists():
+                for file_path in user_docs_path.rglob("*"):
+                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                        actual_files.add(file_path.name)
+            
+            vectorstore = self.get_user_vectorstore(user_email)
+            collection = vectorstore._collection
+            
+            orphaned_ids = []
+            orphaned_files = set()
+            
+            try:
+                all_docs = collection.get()
+                if all_docs and all_docs.get('metadatas'):
+                    for doc_id, metadata in zip(all_docs['ids'], all_docs['metadatas']):
+                        file_name = metadata.get('file_name') or metadata.get('source', '')
+                        if file_name and file_name not in actual_files:
+                            orphaned_ids.append(doc_id)
+                            orphaned_files.add(file_name)
+            except Exception as e:
+                return {"status": "error", "message": f"Error accessing user vector store: {str(e)}"}
+            
+            # Remove orphaned entries
+            cleanup_count = 0
+            if orphaned_ids:
+                batch_size = 100
+                for i in range(0, len(orphaned_ids), batch_size):
+                    batch_ids = orphaned_ids[i:i+batch_size]
+                    try:
+                        collection.delete(ids=batch_ids)
+                        cleanup_count += len(batch_ids)
+                    except Exception as e:
+                        print(f"Error deleting batch: {e}")
+            
+            return {
+                "status": "success",
+                "vector_entries_cleaned": cleanup_count,
+                "remaining_files": len(actual_files),
+                "orphaned_files": list(orphaned_files),
+                "user_email": user_email,
+                "message": f"Cleaned {cleanup_count} vector entries for user {user_email}. {len(actual_files)} files remain."
+            }
+            
+        except Exception as e:
+            return {"status": "error", "message": str(e), "user_email": user_email}
+    
+    def index_user_document(self, user_email: str, file_name: str) -> Tuple[bool, str, int]:
+        """Index document for specific user"""
+        try:
+            user_docs_path = self._get_user_documents_path(user_email)
+            file_path = user_docs_path / file_name
+            
+            if not file_path.exists():
+                return False, f"File {file_name} not found for user {user_email}", 0
+            
+            docs, used_ocr = self.load_document(str(file_path))
+            
+            if used_ocr:
+                return False, f"{file_name} requires OCR processing which is not supported", 0
+            
+            if not docs:
+                return False, f"Could not extract content from {file_name}", 0
+            
+            vectorstore = self.get_user_vectorstore(user_email)
+            collection = vectorstore._collection
+            
+            # Check if already indexed
+            existing_results = collection.get(where={"file_name": file_name})
+            if existing_results and existing_results['ids']:
+                existing_chunks = len(existing_results['ids'])
+                return True, f"{file_name} already indexed ({existing_chunks} chunks)", existing_chunks
+            
+            # Split into chunks
+            chunks = self._create_chunks(docs, file_name, is_common=False, user_email=user_email)
+            
+            if not chunks:
+                return False, f"No chunks created from {file_name}", 0
+            
+            # Index chunks
+            success = self._index_chunks_batch(vectorstore, chunks)
+            if not success:
+                return False, f"Failed to index {file_name}", 0
+            
+            return True, f"Successfully indexed {file_name}", len(chunks)
+            
+        except Exception as e:
+            return False, f"Error indexing user document {file_name}: {str(e)}", 0
+    
+    def reindex_user_pending_files(self, user_email: str) -> Tuple[int, int, List[str]]:
+        """Re-index user files that are not yet indexed"""
+        try:
+            user_docs_path = self._get_user_documents_path(user_email)
+            
+            if not user_docs_path.exists():
+                return 0, 0, []
+            
+            # Get all user files
+            user_files = []
+            for file_path in user_docs_path.rglob("*"):
+                if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                    user_files.append(file_path.name)
+            
+            if not user_files:
+                return 0, 0, []
+            
+            # Get currently indexed files
+            vectorstore = self.get_user_vectorstore(user_email)
+            collection = vectorstore._collection
+            
+            indexed_files = set()
+            try:
+                all_docs = collection.get()
+                if all_docs and all_docs.get('metadatas'):
+                    for metadata in all_docs['metadatas']:
+                        file_name = metadata.get('file_name') or metadata.get('source', '')
+                        if file_name:
+                            indexed_files.add(file_name)
+            except Exception as e:
+                print(f"Error getting indexed files: {e}")
+            
+            # Filter to only pending files
+            pending_files = [f for f in user_files if f not in indexed_files]
+            
+            if not pending_files:
+                return 0, len(user_files), []
+            
+            reindexed = 0
+            errors = []
+            
+            for file_name in pending_files:
+                try:
+                    success, msg, chunks = self.index_user_document(user_email, file_name)
+                    if success and not msg.startswith("already indexed"):
+                        reindexed += 1
+                    elif not success:
+                        errors.append(f"{file_name}: {msg}")
+                except Exception as e:
+                    errors.append(f"{file_name}: {str(e)}")
+            
+            return reindexed, len(pending_files), errors
+            
+        except Exception as e:
+            return 0, 0, [str(e)]
+    
+    # ========== HELPER METHODS ==========
+    
+    def load_document(self, file_path: str) -> Tuple[List[Document], bool]:
+        """Load document with OCR rejection"""
+        try:
+            file_path_obj = Path(file_path)
+            
+            if not file_path_obj.exists():
+                return [], False
+            
+            file_size = file_path_obj.stat().st_size
+            if file_size == 0:
+                return [], False
+            
+            docs = []
+            used_ocr = False
+            
+            if file_path_obj.suffix.lower() in ['.txt', '.md']:
+                loader = TextLoader(str(file_path_obj), encoding='utf-8', autodetect_encoding=True)
+                docs = loader.load()
+                
+            elif file_path_obj.suffix.lower() == '.pdf':
+                content_found = False
+                
+                # Try PyPDFLoader first
+                try:
+                    loader = PyPDFLoader(str(file_path_obj))
+                    docs = loader.load()
+                    if docs and any(doc.page_content.strip() and len(doc.page_content.strip()) > 50 for doc in docs):
+                        content_found = True
+                except Exception:
+                    pass
+                
+                # Try PyMuPDFLoader as fallback
+                if not content_found:
+                    try:
+                        loader = PyMuPDFLoader(str(file_path_obj))
+                        docs = loader.load()
+                        if docs and any(doc.page_content.strip() and len(doc.page_content.strip()) > 50 for doc in docs):
+                            content_found = True
+                    except Exception:
+                        pass
+                
+                # If extraction fails, reject the file
+                if not content_found:
+                    return [], True
+                
+            elif file_path_obj.suffix.lower() == '.docx':
+                loader = Docx2txtLoader(str(file_path_obj))
+                docs = loader.load()
+            else:
+                return [], False
+            
+            if not docs:
+                return [], used_ocr
+            
+            # Add metadata
+            valid_docs = []
+            for doc in docs:
+                if doc.page_content and len(doc.page_content.strip()) > 0:
+                    doc.metadata.update({
+                        'source': file_path_obj.name,
+                        'file_name': file_path_obj.name,
+                        'file_path': str(file_path_obj),
+                        'file_size': file_size,
+                        'indexed_at': datetime.utcnow().isoformat(),
+                        'content_length': len(doc.page_content)
+                    })
+                    valid_docs.append(doc)
+            
+            return valid_docs, used_ocr
+            
+        except Exception as e:
+            print(f"Error loading document {file_path}: {e}")
+            return [], False
+    
+    def _get_user_documents_path(self, user_email: str) -> Path:
+        """Get user-specific documents directory"""
+        user_dir = Path(RAG_DOCUMENTS_PATH) / user_email.replace("@", "_").replace(".", "_")
+        user_dir.mkdir(parents=True, exist_ok=True)
+        return user_dir
+    
+    def _create_chunks(self, docs: List[Document], file_name: str, is_common: bool = True, user_email: str = None) -> List[Document]:
+        """Create chunks from documents with proper metadata"""
+        chunks = []
+        for doc in docs:
+            doc_chunks = self.text_splitter.split_documents([doc])
+            chunks.extend(doc_chunks)
+        
+        # Add metadata to chunks
+        for i, chunk in enumerate(chunks):
+            chunk.metadata.update({
+                'chunk_index': i,
+                'total_chunks': len(chunks),
+                'file_name': file_name,
+                'source': file_name,
+                'chunk_size': len(chunk.page_content),
+                'is_common_knowledge': is_common
+            })
+            
+            if user_email:
+                chunk.metadata['user_email'] = user_email
+        
+        return chunks
+    
+    def _index_chunks_batch(self, vectorstore: Chroma, chunks: List[Document]) -> bool:
+        """Index chunks in batches"""
+        batch_size = 20
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i+batch_size]
+            for attempt in range(3):
+                try:
+                    vectorstore.add_documents(batch)
+                    break
+                except Exception as e:
+                    if attempt == 2:
+                        return False
+                    time.sleep(1)
+        return True
+    
+    def _update_chunks_count(self, file_name: str, chunks_count: int, is_common: bool = True):
+        """Update chunks count for a file"""
+        if IS_PRODUCTION and is_common:
+            try:
+                from supabase import create_client
+                supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+                supabase.table("common_knowledge_documents")\
+                    .update({
+                        "chunks_count": chunks_count,
+                        "indexed_at": datetime.utcnow().isoformat()
+                    })\
+                    .eq("file_name", file_name)\
+                    .execute()
+            except Exception as e:
+                print(f"Error updating chunks count: {e}")
+        else:
+            # Development mode
+            self._dev_chunks_count[file_name] = chunks_count
+    
+    def _determine_sync_status(self, vector_count: int, fs_files: int, db_files: int = 0) -> str:
+        """Determine synchronization status"""
+        if vector_count == 0 and fs_files == 0:
+            return "empty"
+        elif vector_count > 0 and fs_files > 0:
+            return "synced"
+        elif vector_count == 0 and fs_files > 0:
+            return "needs_indexing"
+        elif vector_count > 0 and fs_files == 0:
+            return "needs_cleanup"
+        else:
+            return "partial"
+    
+    def _get_status_message(self, sync_status: str, vector_count: int, fs_files: int) -> str:
+        """Generate human-readable status message"""
+        messages = {
+            "empty": "No files found in repository",
+            "synced": "Vector database is synchronized with filesystem",
+            "needs_indexing": f"{fs_files} files need to be indexed",
+            "needs_cleanup": f"{vector_count} orphaned vector entries need cleanup",
+            "partial": "Partial synchronization - some files indexed"
+        }
+        return messages.get(sync_status, "Unknown status")
+    
+    def _cleanup_orphaned_db_records(self, orphaned_files: set) -> int:
+        """Clean up database records for orphaned files"""
+        db_cleanup_count = 0
+        if IS_PRODUCTION and orphaned_files:
+            try:
+                from supabase import create_client
+                supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+                
+                for orphaned_file in orphaned_files:
+                    try:
+                        result = supabase.table("common_knowledge_documents")\
+                            .delete()\
+                            .eq("file_name", orphaned_file)\
+                            .execute()
+                        if result.data:
+                            db_cleanup_count += 1
+                    except Exception as e:
+                        print(f"Error deleting DB record for {orphaned_file}: {e}")
+            except Exception as e:
+                print(f"Database cleanup error: {e}")
+        return db_cleanup_count
+    
+    def _get_user_file_chunks_from_vector(self, file_name: str) -> int:
+        """Get chunks count for user file from vector store (helper for production mode)"""
+        # This would require user context, return 0 for now
+        return 0
 
 # Global RAG service instance
 rag_service = RAGService()
@@ -459,88 +767,52 @@ router = APIRouter(tags=["RAG"])
 
 @router.post("/api/cleanup-common-knowledge-vector-db")
 async def cleanup_common_knowledge_vector_database():
-    """Clean up common knowledge vector database - remove entries for non-existent files"""
+    """Clean up common knowledge vector database"""
     try:
-        cleanup_count, remaining_files, orphaned_files = rag_service.cleanup_common_knowledge_orphaned_vectors()
-        
-        # Also clean up database records
-        db_cleanup_count = 0
-        try:
-            from supabase import create_client
-            supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-            
-            common_knowledge_path = file_service.get_common_knowledge_path()
-            actual_files = set()
-            
-            if common_knowledge_path.exists():
-                for file_path in common_knowledge_path.rglob("*"):
-                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
-                        actual_files.add(file_path.name)
-            
-            # Get database records
-            db_files = supabase.table("common_knowledge_documents")\
-                .select("*")\
-                .execute()
-            
-            if db_files.data:
-                for db_file in db_files.data:
-                    if db_file["file_name"] not in actual_files:
-                        try:
-                            supabase.table("common_knowledge_documents")\
-                                .delete()\
-                                .eq("id", db_file["id"])\
-                                .execute()
-                            db_cleanup_count += 1
-                        except Exception as e:
-                            print(f"Error deleting DB record: {e}")
-        
-        except Exception as e:
-            print(f"Database cleanup error: {e}")
-        
-        return {
-            "status": "success",
-            "vector_entries_cleaned": cleanup_count,
-            "db_records_cleaned": db_cleanup_count,
-            "remaining_files": remaining_files,
-            "orphaned_files": orphaned_files,
-            "message": f"Cleaned {cleanup_count} vector entries and {db_cleanup_count} DB records. {remaining_files} files remain."
-        }
-        
+        result = rag_service.cleanup_common_knowledge_vectors()
+        return result
     except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e),
-            "vector_entries_cleaned": 0,
-            "db_records_cleaned": 0,
-            "remaining_files": 0,
-            "orphaned_files": []
-        }
+        return {"status": "error", "message": str(e)}
 
 @router.get("/api/common-knowledge-vector-stats")
 async def get_common_knowledge_vector_stats():
     """Get vector database statistics for common knowledge repository"""
     try:
-        doc_count = rag_service.get_common_knowledge_document_count()
-        
-        # Get file system stats
-        common_knowledge_path = file_service.get_common_knowledge_path()
-        fs_files = 0
-        
-        if common_knowledge_path.exists():
-            for file_path in common_knowledge_path.rglob("*"):
-                if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
-                    fs_files += 1
-        
-        return {
-            "vector_entries": doc_count,
-            "filesystem_files": fs_files,
-            "sync_status": "synced" if doc_count > 0 and fs_files > 0 else "needs_cleanup"
-        }
-        
+        result = rag_service.get_common_knowledge_stats()
+        return result
     except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@router.post("/api/cleanup-user-vector-db/{user_email}")
+async def cleanup_user_vector_database(user_email: str):
+    """Clean up user vector database"""
+    try:
+        result = rag_service.cleanup_user_orphaned_vectors(user_email)
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e), "user_email": user_email}
+
+@router.get("/api/user-vector-stats/{user_email}")
+async def get_user_vector_stats(user_email: str):
+    """Get vector database statistics for specific user"""
+    try:
+        result = rag_service.get_user_vector_stats(user_email)
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e), "user_email": user_email}
+
+@router.post("/api/reindex-user-files/{user_email}")
+async def reindex_user_files(user_email: str):
+    """Re-index pending user files"""
+    try:
+        reindexed, pending_count, errors = rag_service.reindex_user_pending_files(user_email)
         return {
-            "vector_entries": 0,
-            "filesystem_files": 0,
-            "sync_status": "error",
-            "error": str(e)
+            "status": "success",
+            "files_reindexed": reindexed,
+            "pending_files": pending_count,
+            "errors": errors,
+            "user_email": user_email,
+            "message": f"Re-indexed {reindexed}/{pending_count} files for user {user_email}"
         }
+    except Exception as e:
+        return {"status": "error", "message": str(e), "user_email": user_email}

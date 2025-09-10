@@ -1,4 +1,4 @@
-# ui_service.py - Core UI service with fixes
+# ui_service.py - Enhanced UI service with comprehensive functionality
 import threading
 from typing import List, Dict, Optional, Tuple, Any
 import gradio as gr
@@ -7,14 +7,16 @@ from chat_service import chat_service
 from config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
 from supabase import create_client
 
-class UIService:
-    """Core UI service"""
+class EnhancedUIService:
+    """Enhanced UI service with comprehensive file and vector operations"""
     
     def __init__(self):
         self.current_user = {"email": "", "name": "User", "user_id": "", "role": "user"}
         self.current_conversation_id = None
         self.last_assistant_message_id = None
         self._lock = threading.Lock()
+    
+    # ========== USER MANAGEMENT ==========
     
     def set_user(self, user_data: Dict):
         """Set current user with role"""
@@ -58,18 +60,7 @@ class UIService:
     def get_last_assistant_message_id(self) -> Optional[str]:
         return self.last_assistant_message_id
     
-    def submit_feedback(self, message_id: str, feedback: str) -> bool:
-        try:
-            return chat_service.update_message_feedback(message_id, feedback)
-        except Exception as e:
-            print(f"Error submitting feedback: {e}")
-            return False
-    
-    def load_initial_data(self) -> Tuple[str, gr.update]:
-        """Load initial data for UI"""
-        conversations = chat_service.get_user_conversations(self.current_user["email"])
-        session_choices = [(conv["title"], conv["id"]) for conv in conversations]
-        return "", gr.update(choices=session_choices, value=None)
+    # ========== INITIAL SETUP ==========
     
     def get_initial_visibility(self):
         """Get tab visibility based on user role"""
@@ -85,10 +76,10 @@ class UIService:
         
         sessions_update = self.load_initial_data()[1]
         
-        # Tab visibility
-        files_tab_visible = True #user_role == "user"
+        # Tab visibility - Files tab visible for all users
+        files_tab_visible = True
         file_manager_common_visible = user_role in ["admin", "spoc"]
-        file_manager_users_visible = user_role == "admin"  # Only admin
+        file_manager_users_visible = user_role == "admin"
         users_tab_visible = user_role == "admin"
         
         # Section visibility within tabs
@@ -96,9 +87,6 @@ class UIService:
         admin_upload_section_visible = user_role == "admin"
         reindex_visible = user_role == "admin"
         cleanup_visible = user_role == "admin"
-        
-        # Auto-select current user for admin/SPOC chat view
-        default_chat_user = user_email if user_role in ["admin", "spoc"] else None
         
         # Title and styling
         if user_role == "spoc":
@@ -127,8 +115,16 @@ class UIService:
             gr.update(value=title_text),
             gr.update(value=guidelines_text),
             gr.update(elem_classes=container_class),
-            gr.update(value=default_chat_user)
+            gr.update(value=None)
         )
+    
+    def load_initial_data(self) -> Tuple[str, gr.update]:
+        """Load initial data for UI"""
+        conversations = chat_service.get_user_conversations(self.current_user["email"])
+        session_choices = [(conv["title"], conv["id"]) for conv in conversations]
+        return "", gr.update(choices=session_choices, value=None)
+    
+    # ========== CHAT OPERATIONS ==========
     
     def send_message(self, message: str, history: List[List[str]], conversation_id: Optional[str]) -> Tuple[List[List[str]], str, Optional[str], gr.update, str]:
         """Send message and get response"""
@@ -294,6 +290,400 @@ class UIService:
                 
         except Exception as e:
             return [], conversation_id, gr.update(), f"Error: {str(e)}"
+    
+    def submit_feedback(self, message_id: str, feedback: str) -> bool:
+        """Submit feedback for a message"""
+        try:
+            return chat_service.update_message_feedback(message_id, feedback)
+        except Exception as e:
+            print(f"Error submitting feedback: {e}")
+            return False
+    
+    # ========== FILE OPERATIONS ==========
+    
+    def get_files_for_display(self, search_term: str = "") -> List[List[Any]]:
+        """Get files for display in Files tab (all users)"""
+        try:
+            from file_services import enhanced_file_service
+            return enhanced_file_service.get_common_knowledge_file_list_for_users()
+        except Exception as e:
+            print(f"Error getting files for display: {e}")
+            return []
+    
+    def refresh_files_display(self) -> List[List[Any]]:
+        """Refresh files display with proper data format"""
+        try:
+            files = self.get_files_for_display()
+            print(f"DEBUG: Refreshing files display with {len(files)} files")
+            return files
+        except Exception as e:
+            print(f"ERROR in refresh_files_display: {e}")
+            return []
+    
+    def search_files_display(self, search_term: str) -> List[List[Any]]:
+        """Search files for display"""
+        try:
+            files = self.get_files_for_display()
+            if not search_term:
+                return files
+            
+            search_lower = search_term.lower()
+            filtered_files = []
+            
+            for file_row in files:
+                searchable_text = " ".join(str(cell).lower() for cell in file_row)
+                if search_lower in searchable_text:
+                    filtered_files.append(file_row)
+            
+            return filtered_files
+        except Exception as e:
+            print(f"Error searching files: {e}")
+            return []
+    
+    # ========== COMMON KNOWLEDGE OPERATIONS ==========
+    
+    def handle_common_knowledge_upload(self, files) -> Tuple[List[List[Any]], str, List[str], str]:
+        """Handle common knowledge file upload"""
+        if not self.is_admin():
+            notification = '<div class="notification">❌ Access denied - Admin only</div>'
+            return [], "Access denied", [], notification
+        
+        try:
+            from file_services import enhanced_file_service
+            
+            files_list, status, choices = enhanced_file_service.upload_common_knowledge_files(
+                files, self.current_user["email"]
+            )
+            
+            success_count = status.count("✅")
+            notification = f'<div class="notification">📤 Upload Complete: {success_count} files processed</div>'
+            
+            return files_list, status, choices, notification
+            
+        except Exception as e:
+            notification = '<div class="notification">❌ Upload failed</div>'
+            return [], f"Upload error: {str(e)}", [], notification
+    
+    def handle_common_knowledge_delete(self, selected_files: List[str]) -> Tuple[List[List[Any]], str, List[str], str]:
+        """Handle common knowledge file deletion"""
+        if not self.is_admin():
+            notification = '<div class="notification">❌ Access denied - Admin only</div>'
+            return [], "Access denied", [], notification
+        
+        try:
+            from file_services import enhanced_file_service
+            
+            files_list, status, choices = enhanced_file_service.delete_common_knowledge_files(selected_files)
+            
+            success_count = status.count("✅")
+            notification = f'<div class="notification">🗑️ Deletion Complete: {success_count} files removed</div>'
+            
+            return files_list, status, choices, notification
+            
+        except Exception as e:
+            notification = '<div class="notification">❌ Deletion failed</div>'
+            return [], f"Delete error: {str(e)}", [], notification
+    
+    def handle_common_knowledge_refresh(self, search_term: str = "") -> Tuple[List[List[Any]], List[str], str]:
+        """Handle common knowledge file refresh"""
+        if not self.is_admin_or_spoc():
+            notification = '<div class="notification">❌ Access denied</div>'
+            return [], [], notification
+        
+        try:
+            from file_services import enhanced_file_service
+            
+            files = enhanced_file_service.get_common_knowledge_file_list(search_term)
+            choices = [row[0] for row in files] if files else []
+            notification = '<div class="notification">🔄 Files refreshed</div>'
+            
+            return files, choices, notification
+            
+        except Exception as e:
+            notification = '<div class="notification">❌ Refresh failed</div>'
+            return [], [], notification
+    
+    def handle_common_knowledge_reindex(self) -> Tuple[List[List[Any]], List[str], str, str]:
+        """Handle common knowledge re-indexing"""
+        if not self.is_admin():
+            notification = '<div class="notification">❌ Access denied - Admin only</div>'
+            return [], [], "Access denied", notification
+        
+        try:
+            from file_services import enhanced_file_service
+            
+            result = enhanced_file_service.reindex_common_knowledge_pending_files()
+            files = enhanced_file_service.get_common_knowledge_file_list()
+            choices = [row[0] for row in files] if files else []
+            notification = '<div class="notification">🔍 Re-indexing Complete</div>'
+            
+            return files, choices, result, notification
+            
+        except Exception as e:
+            notification = '<div class="notification">❌ Re-indexing failed</div>'
+            return [], [], f"Re-indexing error: {str(e)}", notification
+    
+    def handle_common_knowledge_cleanup(self) -> Tuple[str, str]:
+        """Handle common knowledge vector cleanup"""
+        if not self.is_admin():
+            notification = '<div class="notification">❌ Access denied - Admin only</div>'
+            return "", notification
+        
+        try:
+            from rag_service import rag_service
+            
+            result = rag_service.cleanup_common_knowledge_vectors()
+            
+            if result.get("status") == "success":
+                cleanup_count = result.get("vector_entries_cleaned", 0)
+                db_count = result.get("db_records_cleaned", 0)
+                remaining = result.get("remaining_files", 0)
+                orphaned = result.get("orphaned_files", [])
+                
+                status_msg = f"🧹 Vector Database Cleanup Complete:\n"
+                status_msg += f"• Vector entries cleaned: {cleanup_count}\n"
+                status_msg += f"• Database records cleaned: {db_count}\n"
+                status_msg += f"• Files remaining: {remaining}\n"
+                
+                if orphaned:
+                    status_msg += f"• Orphaned files removed: {len(orphaned)}\n"
+                    status_msg += f"• Files: {', '.join(orphaned[:3])}" + ("..." if len(orphaned) > 3 else "")
+                
+                notification = '<div class="notification">🧹 Vector database cleaned successfully</div>'
+            else:
+                status_msg = f"❌ Cleanup failed: {result.get('message', 'Unknown error')}"
+                notification = '<div class="notification">❌ Cleanup failed</div>'
+            
+            return status_msg, notification
+            
+        except Exception as e:
+            status_msg = f"❌ Cleanup error: {str(e)}"
+            notification = '<div class="notification">❌ Cleanup failed</div>'
+            return status_msg, notification
+    
+    def handle_common_knowledge_vector_stats(self) -> Tuple[str, str]:
+        """Handle common knowledge vector stats"""
+        if not self.is_admin_or_spoc():
+            notification = '<div class="notification">❌ Access denied</div>'
+            return "", notification
+        
+        try:
+            from rag_service import rag_service
+            
+            result = rag_service.get_common_knowledge_stats()
+            
+            vector_count = result.get("vector_entries", 0)
+            fs_count = result.get("filesystem_files", 0)
+            db_count = result.get("database_files", 0)
+            sync_status = result.get("sync_status", "unknown")
+            status_message = result.get("status_message", "")
+            
+            status_msg = f"📊 Vector Database Statistics:\n"
+            status_msg += f"• Vector entries: {vector_count:,}\n"
+            status_msg += f"• Filesystem files: {fs_count}\n"
+            
+            if db_count > 0:
+                status_msg += f"• Database files: {db_count}\n"
+            
+            status_msg += f"• Sync status: {sync_status.upper()}\n"
+            status_msg += f"• Status: {status_message}\n"
+            
+            if sync_status == "needs_cleanup":
+                status_msg += f"• ⚠️ Cleanup recommended\n"
+            elif sync_status == "synced":
+                status_msg += f"• ✅ Database is synchronized\n"
+            elif sync_status == "needs_indexing":
+                status_msg += f"• 🔍 Files need indexing\n"
+            
+            if result.get("error"):
+                status_msg += f"• Error: {result['error']}"
+            
+            notification = '<div class="notification">📊 Stats updated successfully</div>'
+            return status_msg, notification
+            
+        except Exception as e:
+            status_msg = f"❌ Stats error: {str(e)}"
+            notification = '<div class="notification">❌ Stats failed</div>'
+            return status_msg, notification
+    
+    def search_common_knowledge_files(self, search_term: str) -> Tuple[List[List[Any]], List[str]]:
+        """Search common knowledge files"""
+        try:
+            from file_services import enhanced_file_service
+            
+            files = enhanced_file_service.get_common_knowledge_file_list(search_term)
+            choices = [row[0] for row in files] if files else []
+            
+            return files, choices
+            
+        except Exception as e:
+            print(f"Error searching common knowledge files: {e}")
+            return [], []
+    
+    # ========== USER FILE OPERATIONS ==========
+    
+    def handle_user_file_upload(self, user_email: str, files) -> Tuple[List[List[Any]], str, List[str], str]:
+        """Handle user file upload"""
+        if not self.is_admin() or not user_email:
+            notification = '<div class="notification">❌ Admin access required and user must be selected</div>'
+            return [], "Access denied or no user selected", [], notification
+        
+        try:
+            from file_services import enhanced_file_service
+            
+            files_list, status, choices = enhanced_file_service.upload_user_files(user_email, files)
+            
+            success_count = status.count("✅")
+            notification = f'<div class="notification">📤 Upload Complete: {success_count} files for user</div>'
+            
+            return files_list, status, choices, notification
+            
+        except Exception as e:
+            notification = '<div class="notification">❌ Upload failed</div>'
+            return [], f"Upload error: {str(e)}", [], notification
+    
+    def handle_user_file_delete(self, user_email: str, selected_files: List[str]) -> Tuple[List[List[Any]], str, List[str], str]:
+        """Handle user file deletion"""
+        if not self.is_admin() or not user_email:
+            notification = '<div class="notification">❌ Admin access required and user must be selected</div>'
+            return [], "Access denied or no user selected", [], notification
+        
+        try:
+            from file_services import enhanced_file_service
+            
+            files_list, status, choices = enhanced_file_service.delete_user_files(user_email, selected_files)
+            
+            success_count = status.count("✅")
+            notification = f'<div class="notification">🗑️ Deletion Complete: {success_count} files removed</div>'
+            
+            return files_list, status, choices, notification
+            
+        except Exception as e:
+            notification = '<div class="notification">❌ Deletion failed</div>'
+            return [], f"Delete error: {str(e)}", [], notification
+    
+    def handle_user_file_refresh(self, user_email: str, search_term: str = "") -> Tuple[List[List[Any]], List[str], str]:
+        """Handle user file refresh"""
+        if not self.is_admin() or not user_email:
+            notification = '<div class="notification">❌ Admin access required and user must be selected</div>'
+            return [], [], notification
+        
+        try:
+            from file_services import enhanced_file_service
+            
+            files = enhanced_file_service.get_user_file_list(user_email, search_term)
+            choices = [row[0] for row in files] if files else []
+            notification = '<div class="notification">🔄 User files refreshed</div>'
+            
+            return files, choices, notification
+            
+        except Exception as e:
+            notification = '<div class="notification">❌ Refresh failed</div>'
+            return [], [], notification
+    
+    def handle_user_file_reindex(self, user_email: str) -> Tuple[str, str]:
+        """Handle user file re-indexing"""
+        if not self.is_admin() or not user_email:
+            notification = '<div class="notification">❌ Admin access required and user must be selected</div>'
+            return "Access denied or no user selected", notification
+        
+        try:
+            from file_services import enhanced_file_service
+            
+            result = enhanced_file_service.reindex_user_pending_files(user_email)
+            notification = '<div class="notification">🔍 User re-indexing completed</div>'
+            
+            return result, notification
+            
+        except Exception as e:
+            notification = '<div class="notification">❌ Re-indexing failed</div>'
+            return f"Re-indexing error: {str(e)}", notification
+    
+    def handle_user_vector_cleanup(self, user_email: str) -> Tuple[str, str]:
+        """Handle user vector cleanup"""
+        if not self.is_admin() or not user_email:
+            notification = '<div class="notification">❌ Admin access required and user must be selected</div>'
+            return "Access denied or no user selected", notification
+        
+        try:
+            from rag_service import rag_service
+            
+            result = rag_service.cleanup_user_orphaned_vectors(user_email)
+            
+            if result.get("status") == "success":
+                cleanup_count = result.get("vector_entries_cleaned", 0)
+                remaining = result.get("remaining_files", 0)
+                orphaned = result.get("orphaned_files", [])
+                
+                status_msg = f"🧹 User Vector Cleanup Complete for {user_email}:\n"
+                status_msg += f"• Vector entries cleaned: {cleanup_count}\n"
+                status_msg += f"• Files remaining: {remaining}\n"
+                
+                if orphaned:
+                    status_msg += f"• Orphaned files removed: {len(orphaned)}\n"
+                    status_msg += f"• Files: {', '.join(orphaned[:3])}" + ("..." if len(orphaned) > 3 else "")
+                
+                notification = '<div class="notification">🧹 User vector database cleaned successfully</div>'
+            else:
+                status_msg = f"❌ Cleanup failed: {result.get('message', 'Unknown error')}"
+                notification = '<div class="notification">❌ Cleanup failed</div>'
+            
+            return status_msg, notification
+            
+        except Exception as e:
+            status_msg = f"❌ Cleanup error: {str(e)}"
+            notification = '<div class="notification">❌ Cleanup failed</div>'
+            return status_msg, notification
+    
+    def handle_user_vector_stats(self, user_email: str) -> Tuple[str, str]:
+        """Handle user vector stats"""
+        if not self.is_admin() or not user_email:
+            notification = '<div class="notification">❌ Admin access required and user must be selected</div>'
+            return "Access denied or no user selected", notification
+        
+        try:
+            from rag_service import rag_service
+            
+            result = rag_service.get_user_vector_stats(user_email)
+            
+            vector_count = result.get("vector_entries", 0)
+            fs_count = result.get("filesystem_files", 0)
+            sync_status = result.get("sync_status", "unknown")
+            status_message = result.get("status_message", "")
+            
+            status_msg = f"📊 User Vector Statistics for {user_email}:\n"
+            status_msg += f"• Vector entries: {vector_count:,}\n"
+            status_msg += f"• Filesystem files: {fs_count}\n"
+            status_msg += f"• Sync status: {sync_status.upper()}\n"
+            status_msg += f"• Status: {status_message}\n"
+            
+            if result.get("error"):
+                status_msg += f"• Error: {result['error']}"
+            
+            notification = '<div class="notification">📊 User stats updated successfully</div>'
+            return status_msg, notification
+            
+        except Exception as e:
+            status_msg = f"❌ Stats error: {str(e)}"
+            notification = '<div class="notification">❌ Stats failed</div>'
+            return status_msg, notification
+    
+    def search_user_files(self, user_email: str, search_term: str) -> Tuple[List[List[Any]], List[str]]:
+        """Search user files"""
+        if not user_email:
+            return [], []
+        
+        try:
+            from file_services import enhanced_file_service
+            
+            files = enhanced_file_service.get_user_file_list(user_email, search_term)
+            choices = [row[0] for row in files] if files else []
+            
+            return files, choices
+            
+        except Exception as e:
+            print(f"Error searching user files: {e}")
+            return [], []
 
 # Global UI service instance
-ui_service = UIService()
+ui_service = EnhancedUIService()

@@ -6,7 +6,7 @@ from gradio.routes import mount_gradio_app
 from auth import get_logged_in_user
 from ui_service import ui_service
 from user_management import user_management
-from file_services import common_knowledge_service, user_file_service
+from file_services import enhanced_file_service
 from chat_service import chat_service
 
 def create_landing_page_html() -> str:
@@ -100,7 +100,7 @@ def create_landing_page_html() -> str:
     """
 
 def create_gradio_interface():
-    """Create main Gradio interface with all fixes"""
+    """Create main Gradio interface with enhanced file management"""
     
     with gr.Blocks(
         theme=gr.themes.Soft(), 
@@ -346,7 +346,7 @@ def create_gradio_interface():
                             gr.Markdown("*Press Shift+Enter to send message, Enter for new line*")
                             send_btn = gr.Button("Send", variant="primary", elem_classes="send-btn")
             
-            # Files Tab (for regular users)
+            # Files Tab (for all users)
             with gr.TabItem("📄 Files", visible=False) as files_tab:
                 gr.Markdown("## 📚 Available Documents")
                 
@@ -364,7 +364,8 @@ def create_gradio_interface():
                     headers=["Document Name", "Size", "Type", "Added Date"],
                     datatype=["str", "str", "str", "str"],
                     interactive=False,
-                    wrap=True
+                    wrap=True,
+                    value=[]
                 )
             
             # File Manager (Common) Tab
@@ -487,6 +488,8 @@ def create_gradio_interface():
                     
                     with gr.Row():
                         user_refresh_btn = gr.Button("🔄 Refresh")
+                        user_reindex_btn = gr.Button("🔍 Re-index", variant="primary", visible=False)  # Admin only
+                        user_cleanup_btn = gr.Button("🧹 Cleanup", variant="secondary", visible=False)  # Admin only
                         user_vector_stats_btn = gr.Button("📊 Vector Stats", variant="secondary")
                     
                     # User Files Table
@@ -646,86 +649,296 @@ def create_gradio_interface():
         file_notification = gr.HTML("", visible=False)
         action_status = gr.Textbox(visible=False)
         
-        # ========== EVENT BINDINGS ==========
+        # ========== EVENT HANDLERS ==========
+        
+        # Enhanced file loading and refresh functions
+        def load_user_files():
+            """Load files for Files tab - works for all users"""
+            try:
+                files = ui_service.get_files_for_display()
+                return files
+            except Exception as e:
+                print(f"ERROR in load_user_files(): {e}")
+                return []
+
+        def refresh_files_tab():
+            """Refresh files display in Files tab"""
+            try:
+                files = ui_service.refresh_files_display()
+                return files
+            except Exception as e:
+                print(f"ERROR in refresh_files_tab: {e}")
+                return []
+
+        def handle_user_file_search(search_term):
+            """Handle file search in Files tab"""
+            try:
+                files = ui_service.search_files_display(search_term)
+                return files
+            except Exception as e:
+                print(f"ERROR in handle_user_file_search: {e}")
+                return []
+
+        # Enhanced common knowledge file handlers
+        def handle_ck_upload(files):
+            """Handle common knowledge file upload"""
+            files_list, status, choices, notification = ui_service.handle_common_knowledge_upload(files)
+            return (
+                gr.update(value=files_list), 
+                gr.update(value=status, visible=True), 
+                gr.update(choices=choices, value=[]), 
+                gr.update(value=notification, visible=True)
+            )
+
+        def handle_ck_delete(selected):
+            """Handle common knowledge file deletion"""
+            files_list, status, choices, notification = ui_service.handle_common_knowledge_delete(selected)
+            return (
+                gr.update(value=files_list), 
+                gr.update(value=status, visible=True), 
+                gr.update(choices=choices, value=[]), 
+                gr.update(value=notification, visible=True)
+            )
+
+        def handle_ck_refresh():
+            """Handle common knowledge file refresh"""
+            files, choices, notification = ui_service.handle_common_knowledge_refresh()
+            return (
+                gr.update(value=files), 
+                gr.update(choices=choices, value=[]), 
+                gr.update(value=notification, visible=True)
+            )
+
+        def handle_ck_reindex():
+            """Handle common knowledge re-indexing"""
+            files, choices, result, notification = ui_service.handle_common_knowledge_reindex()
+            return (
+                gr.update(value=files), 
+                gr.update(choices=choices), 
+                result, 
+                gr.update(value=notification, visible=True)
+            )
+
+        def handle_cleanup_vector_db():
+            """Handle cleanup vector database operation"""
+            status_msg, notification = ui_service.handle_common_knowledge_cleanup()
+            return (
+                gr.update(value=status_msg, visible=True), 
+                gr.update(value=notification, visible=True)
+            )
+
+        def handle_vector_stats():
+            """Handle vector database statistics"""
+            status_msg, notification = ui_service.handle_common_knowledge_vector_stats()
+            return (
+                gr.update(value=status_msg, visible=True), 
+                gr.update(value=notification, visible=True)
+            )
+
+        def handle_file_search(search_term):
+            """Handle file search in common knowledge manager"""
+            files, choices = ui_service.search_common_knowledge_files(search_term)
+            return gr.update(value=files), gr.update(choices=choices, value=[])
+
+        def select_all_files():
+            """Select all files in common knowledge manager"""
+            if ui_service.is_admin_or_spoc():
+                files = enhanced_file_service.get_common_knowledge_file_list()
+                all_files = [row[0] for row in files] if files else []
+                return gr.update(value=all_files)
+            return gr.update(value=[])
+
+        # Enhanced user file manager handlers
+        def select_user_for_file_manager(user_email):
+            """Select user for file management"""
+            if ui_service.is_admin() and user_email:
+                users = user_management.get_all_users()
+                user_info = next((u for u in users if u['email'] == user_email), None)
+                if user_info:
+                    info_text = f"**Selected User:** {user_info['name']} ({user_info['email']})\n"
+                    info_text += f"**Role:** {user_info['role'].upper()}\n"
+                    info_text += f"**Last Login:** {user_info.get('last_login', 'Never')[:10] if user_info.get('last_login') else 'Never'}"
+                    
+                    # Load user files
+                    files, choices, _ = ui_service.handle_user_file_refresh(user_email)
+                    
+                    return (
+                        gr.update(value=info_text),
+                        gr.update(value=files),
+                        gr.update(choices=choices, value=[])
+                    )
+            return (
+                gr.update(value="*No user selected*"),
+                gr.update(value=[]),
+                gr.update(choices=[], value=[])
+            )
+
+        def handle_user_file_upload(user_email, files):
+            """Handle user file upload"""
+            files_list, status, choices, notification = ui_service.handle_user_file_upload(user_email, files)
+            return (
+                gr.update(value=files_list), 
+                gr.update(value=status, visible=True), 
+                gr.update(choices=choices), 
+                gr.update(value=notification, visible=True)
+            )
+
+        def handle_user_file_delete(user_email, selected_files):
+            """Handle user file deletion"""
+            files_list, status, choices, notification = ui_service.handle_user_file_delete(user_email, selected_files)
+            return (
+                gr.update(value=files_list), 
+                gr.update(value=status, visible=True), 
+                gr.update(choices=choices), 
+                gr.update(value=notification, visible=True)
+            )
+
+        def handle_user_file_refresh(user_email):
+            """Handle user file refresh"""
+            files, choices, notification = ui_service.handle_user_file_refresh(user_email)
+            return (
+                gr.update(value=files), 
+                gr.update(choices=choices, value=[]), 
+                gr.update(value=notification, visible=True)
+            )
+
+        def handle_user_reindex(user_email):
+            """Handle user file re-indexing"""
+            result, notification = ui_service.handle_user_file_reindex(user_email)
+            return (
+                gr.update(value=result, visible=True), 
+                gr.update(value=notification, visible=True)
+            )
+
+        def handle_user_cleanup_vector_db(user_email):
+            """Handle user vector cleanup"""
+            status_msg, notification = ui_service.handle_user_vector_cleanup(user_email)
+            return (
+                gr.update(value=status_msg, visible=True), 
+                gr.update(value=notification, visible=True)
+            )
+
+        def handle_user_vector_stats(user_email):
+            """Handle user vector stats"""
+            status_msg, notification = ui_service.handle_user_vector_stats(user_email)
+            return (
+                gr.update(value=status_msg, visible=True), 
+                gr.update(value=notification, visible=True)
+            )
+
+        def handle_user_file_search(user_email, search_term):
+            """Handle user file search"""
+            files, choices = ui_service.search_user_files(user_email, search_term)
+            return gr.update(value=files), gr.update(choices=choices, value=[])
+
+        def select_all_user_files(user_email):
+            """Select all user files"""
+            if ui_service.is_admin() and user_email:
+                user_files = enhanced_file_service.get_user_file_list(user_email)
+                all_files = [row[0] for row in user_files] if user_files else []
+                return gr.update(value=all_files)
+            return gr.update(value=[])
+
+        def refresh_user_file_users():
+            """Refresh user dropdown for file management"""
+            if ui_service.is_admin():
+                users = user_management.get_all_users()
+                user_choices = [(f"{user['name']} ({user['email']})", user['email']) for user in users]
+                notification = '<div class="notification">🔄 Users refreshed</div>'
+                return gr.update(choices=user_choices), gr.update(value=notification, visible=True)
+            return gr.update(choices=[]), gr.update(value="Access denied", visible=True)
+
+        # ========== LOAD INITIAL DATA ==========
+        
+        # Enhanced initial visibility function
+        def get_initial_visibility():
+            """Get tab visibility based on user role - ENHANCED VERSION"""
+            user_role = ui_service.get_user_role()
+            user_email = ui_service.current_user.get("email", "")
+            
+            if user_role == "admin":
+                greeting = f"Namaskaram {ui_service.get_display_name()}! [ADMIN]"
+            elif user_role == "spoc":
+                greeting = f"Namaskaram {ui_service.get_display_name()}! [SPOC]"
+            else:
+                greeting = f"Namaskaram {ui_service.get_display_name()}!"
+            
+            # Load initial chat data and default conversation for admin/SPOC
+            _, sessions_update = ui_service.load_initial_data()
+            
+            # For admin/SPOC, try to load their own conversations by default
+            default_chat_user = None
+            if user_role in ["admin", "spoc"]:
+                default_chat_user = user_email
+            
+            # Tab visibility - Files tab visible for all users
+            files_tab_visible = True
+            file_manager_common_visible = user_role in ["admin", "spoc"]
+            file_manager_users_visible = user_role == "admin"
+            users_tab_visible = user_role == "admin"
+            
+            # Section visibility within tabs
+            admin_chat_section_visible = user_role in ["admin", "spoc"]
+            admin_upload_section_visible = user_role == "admin"
+            reindex_visible = user_role == "admin"
+            cleanup_visible = user_role == "admin"
+            
+            # User file manager button visibility
+            user_reindex_visible = user_role == "admin"
+            user_cleanup_visible = user_role == "admin"
+            
+            # Title and styling
+            if user_role == "spoc":
+                title_text = "## SPOC File Management"
+                container_class = "spoc-section"
+            else:
+                title_text = "## Common Knowledge Repository"
+                container_class = "admin-section"
+            
+            guidelines_text = """
+            **Common Knowledge Repository:**
+            Max file size: 10MB | Formats: .txt, .md, .pdf, .docx | PDFs must be text-extractable
+            """
+            
+            return (
+                greeting,
+                sessions_update,
+                gr.update(visible=files_tab_visible),
+                gr.update(visible=file_manager_common_visible),
+                gr.update(visible=file_manager_users_visible),
+                gr.update(visible=users_tab_visible),
+                gr.update(visible=admin_chat_section_visible),
+                gr.update(visible=admin_upload_section_visible),
+                gr.update(visible=reindex_visible),
+                gr.update(visible=cleanup_visible),
+                gr.update(value=title_text),
+                gr.update(value=guidelines_text),
+                gr.update(elem_classes=container_class),
+                gr.update(value=default_chat_user),
+                gr.update(visible=user_reindex_visible),
+                gr.update(visible=user_cleanup_visible)
+            )
         
         # Load initial data
         demo.load(
-            fn=ui_service.get_initial_visibility, 
+            fn=get_initial_visibility, 
             outputs=[
                 namaskaram_user, sessions_radio, files_tab, file_manager_common_tab,
                 file_manager_users_tab, users_tab, admin_chat_user_section,
                 admin_upload_section, reindex_btn, cleanup_btn,
                 file_manager_title, file_manager_guidelines, file_manager_container,
-                chat_users_dropdown
+                chat_users_dropdown, user_reindex_btn, user_cleanup_btn
             ]
         )
         
         # Load user files for regular users
-        def load_user_files():
-            """
-            Load files for regular user Files tab.
-            Returns a Gradio Dataframe-compatible list-of-rows:
-            [Document Name, Size, Type, Added Date]
-            """
-            try:
-                # Attempt to fetch the user's role via ui_service - if the service is not available,
-                # fall back to always showing files (better for debugging)
-                try:
-                    role = ui_service.get_user_role()
-                except Exception as e:
-                    print(f"Warning: ui_service.get_user_role() failed: {e}")
-                    role = "user"  # be permissive for debugging
-
-                # Only show this tab for regular users — if you want admins to also see, remove this check
-                if role != "user":
-                    return gr.update(value=[])
-
-                # Ask the common_knowledge_service for the formatted file list for users
-                files = []
-                try:
-                    files = common_knowledge_service.get_file_list_for_users()
-                except Exception as e:
-                    print(f"Error calling common_knowledge_service.get_file_list_for_users(): {e}")
-                    files = []
-
-                # Sanity: ensure files is a list of lists
-                if not files:
-                    return gr.update(value=[])
-
-                # Guard/format rows: ensure exactly 4 columns match the Dataframe headers
-                formatted = []
-                for row in files:
-                    # Expecting row = [name, size_str, file_type, upload_date]
-                    try:
-                        name = str(row[0]) if len(row) > 0 else ""
-                        size = str(row[1]) if len(row) > 1 else ""
-                        ftype = str(row[2]) if len(row) > 2 else ""
-                        added = str(row[3]) if len(row) > 3 else ""
-                        formatted.append([name, size, ftype, added])
-                    except Exception as e:
-                        print(f"Skipping corrupt file row {row}: {e}")
-                        continue
-
-                return gr.update(value=formatted)
-
-            except Exception as e:
-                print(f"Unexpected error in load_user_files(): {e}")
-                return gr.update(value=[])
-        
         demo.load(fn=load_user_files, outputs=[user_files_table])
 
-        def refresh_files_tab():
-            """Refresh files display in Files tab"""
-            files = common_knowledge_service.get_file_list_for_users()
-            return gr.update(value=files)
-
-        refresh_user_files_btn.click(fn=refresh_files_tab, outputs=[user_files_table])
-        
         # Load admin data
         def load_admin_data():
             if ui_service.is_admin():
                 # Common knowledge files
-                files = common_knowledge_service.get_file_list()
+                files = enhanced_file_service.get_common_knowledge_file_list()
                 choices = [row[0] for row in files] if files else []
                 
                 # Users data
@@ -758,7 +971,7 @@ def create_gradio_interface():
                     gr.update(choices=whitelist_choices)
                 )
             elif ui_service.is_spoc():
-                files = common_knowledge_service.get_file_list()
+                files = enhanced_file_service.get_common_knowledge_file_list()
                 assigned_users = user_management.get_spoc_assignments(ui_service.current_user["email"])
                 users = user_management.get_all_users()
                 assigned_user_details = [user for user in users if user['email'] in assigned_users]
@@ -788,7 +1001,7 @@ def create_gradio_interface():
         
         # ========== CHAT HANDLERS ==========
         
-        # FIXED: Chat user selection with proper conversation loading
+        # Chat user selection with proper conversation loading
         def select_user_for_chat(selected_user_email):
             if not ui_service.is_admin_or_spoc() or not selected_user_email:
                 return gr.update()
@@ -813,7 +1026,6 @@ def create_gradio_interface():
             
             return gr.update(choices=[])
         
-        # FIXED: Refresh button working properly
         def refresh_current_user_chats():
             conversations = chat_service.get_user_conversations(ui_service.current_user["email"])
             session_choices = [(conv["title"], conv["id"]) for conv in conversations]
@@ -841,158 +1053,34 @@ def create_gradio_interface():
         sessions_radio.change(fn=ui_service.load_conversation, inputs=[sessions_radio], outputs=[chatbot, current_conversation_id, action_status])
         delete_chat_btn.click(fn=ui_service.delete_conversation, inputs=[sessions_radio], outputs=[chatbot, current_conversation_id, sessions_radio, action_status])
         
-        # ========== FILE MANAGEMENT HANDLERS ==========
+        # ========== FILE MANAGEMENT EVENT BINDINGS ==========
         
-        # FIXED: File search functionality
-        def handle_file_search(search_term):
-            if ui_service.is_admin_or_spoc():
-                files = common_knowledge_service.get_file_list(search_term)
-                choices = [row[0] for row in files] if files else []
-                return gr.update(value=files), gr.update(choices=choices, value=[])
-            return gr.update(), gr.update()
-        
-        def handle_user_file_search(search_term):
-            files = common_knowledge_service.get_file_list_for_users()
-            if search_term:
-                filtered_files = []
-                search_lower = search_term.lower()
-                for file_row in files:
-                    if search_lower in " ".join(str(cell).lower() for cell in file_row):
-                        filtered_files.append(file_row)
-                files = filtered_files
-            return gr.update(value=files)
-        
-        file_search_box.change(fn=handle_file_search, inputs=[file_search_box], outputs=[files_table, selected_files])
+        # Files tab bindings (for all users)
+        refresh_user_files_btn.click(fn=refresh_files_tab, outputs=[user_files_table])
         user_file_search.change(fn=handle_user_file_search, inputs=[user_file_search], outputs=[user_files_table])
-        
+
         # Common knowledge file operations
-        def handle_ck_upload(files):
-            if not ui_service.is_admin():
-                notification = '<div class="notification">❌ Access denied - Admin only</div>'
-                return gr.update(), gr.update(value="Access denied", visible=True), gr.update(), gr.update(value=notification, visible=True)
-            
-            files_list, status, choices = common_knowledge_service.upload_files(files, ui_service.current_user["email"])
-            success_count = status.count("✅")
-            notification = f'<div class="notification">📤 Upload Complete: {success_count} files processed</div>'
-            return gr.update(value=files_list), gr.update(value=status, visible=True), gr.update(choices=choices, value=[]), gr.update(value=notification, visible=True)
-        
-        def handle_ck_delete(selected):
-            if not ui_service.is_admin():
-                notification = '<div class="notification">❌ Access denied - Admin only</div>'
-                return gr.update(), gr.update(value="Access denied", visible=True), gr.update(), gr.update(value=notification, visible=True)
-            
-            files_list, status, choices = common_knowledge_service.delete_files(selected)
-            success_count = status.count("✅")
-            notification = f'<div class="notification">🗑️ Deletion Complete: {success_count} files removed</div>'
-            return gr.update(value=files_list), gr.update(value=status, visible=True), gr.update(choices=choices, value=[]), gr.update(value=notification, visible=True)
-        
-        def handle_ck_refresh():
-            if ui_service.is_admin_or_spoc():
-                files = common_knowledge_service.get_file_list()
-                choices = [row[0] for row in files] if files else []
-                notification = '<div class="notification">🔄 Files refreshed</div>'
-                return gr.update(value=files), gr.update(choices=choices, value=[]), gr.update(value=notification, visible=True)
-            return gr.update(), gr.update(), gr.update(value='<div class="notification">❌ Access denied</div>', visible=True)
-        
-        def handle_ck_reindex():
-            if ui_service.is_admin():
-                result = common_knowledge_service.reindex_pending_files()
-                files = common_knowledge_service.get_file_list()
-                choices = [row[0] for row in files] if files else []
-                notification = '<div class="notification">🔍 Re-indexing Complete</div>'
-                return gr.update(value=files), gr.update(choices=choices), result, gr.update(value=notification, visible=True)
-            return gr.update(), gr.update(), "Access denied", gr.update(value='<div class="notification">❌ Access denied</div>', visible=True)
-        
-        def select_all_files():
-            if ui_service.is_admin_or_spoc():
-                files = common_knowledge_service.get_file_list()
-                all_files = [row[0] for row in files] if files else []
-                return gr.update(value=all_files)
-            return gr.update(value=[])
-        
-        # Bind common knowledge operations
         upload_btn.click(fn=handle_ck_upload, inputs=[file_upload], outputs=[files_table, upload_status, selected_files, file_notification])
         delete_btn.click(fn=handle_ck_delete, inputs=[selected_files], outputs=[files_table, delete_status, selected_files, file_notification])
         refresh_btn.click(fn=handle_ck_refresh, outputs=[files_table, selected_files, file_notification])
         reindex_btn.click(fn=handle_ck_reindex, outputs=[files_table, selected_files, action_status, file_notification])
+        cleanup_btn.click(fn=handle_cleanup_vector_db, outputs=[vector_status, file_notification])
+        vector_stats_btn.click(fn=handle_vector_stats, outputs=[vector_status, file_notification])
+        file_search_box.change(fn=handle_file_search, inputs=[file_search_box], outputs=[files_table, selected_files])
         select_all_btn.click(fn=select_all_files, outputs=[selected_files])
-        
-        # FIXED: User file manager operations
-        def select_user_for_file_manager(user_email):
-            if ui_service.is_admin() and user_email:
-                users = user_management.get_all_users()
-                user_info = next((u for u in users if u['email'] == user_email), None)
-                if user_info:
-                    info_text = f"**Selected User:** {user_info['name']} ({user_info['email']})\n"
-                    info_text += f"**Role:** {user_info['role'].upper()}\n"
-                    info_text += f"**Last Login:** {user_info.get('last_login', 'Never')[:10] if user_info.get('last_login') else 'Never'}"
-                    
-                    # Load user files
-                    user_files = user_file_service.get_user_file_list(user_email)
-                    file_choices = [row[0] for row in user_files] if user_files else []
-                    
-                    return (
-                        gr.update(value=info_text),
-                        gr.update(value=user_files),
-                        gr.update(choices=file_choices, value=[])
-                    )
-            return (
-                gr.update(value="*No user selected*"),
-                gr.update(value=[]),
-                gr.update(choices=[], value=[])
-            )
-        
-        def handle_user_file_upload(user_email, files):
-            if not ui_service.is_admin() or not user_email:
-                notification = '<div class="notification">❌ Admin access required and user must be selected</div>'
-                return gr.update(), gr.update(value="Access denied or no user selected", visible=True), gr.update(), gr.update(value=notification, visible=True)
-            
-            files_list, status, choices = user_file_service.upload_files_for_user(user_email, files)
-            success_count = status.count("✅")
-            notification = f'<div class="notification">📤 Upload Complete: {success_count} files for user</div>'
-            return gr.update(value=files_list), gr.update(value=status, visible=True), gr.update(choices=choices), gr.update(value=notification, visible=True)
-        
-        def handle_user_file_delete(user_email, selected_files):
-            if not ui_service.is_admin() or not user_email:
-                notification = '<div class="notification">❌ Admin access required and user must be selected</div>'
-                return gr.update(), gr.update(value="Access denied or no user selected", visible=True), gr.update(), gr.update(value=notification, visible=True)
-            
-            files_list, status, choices = user_file_service.delete_user_files(user_email, selected_files)
-            success_count = status.count("✅")
-            notification = f'<div class="notification">🗑️ Deletion Complete: {success_count} files removed</div>'
-            return gr.update(value=files_list), gr.update(value=status, visible=True), gr.update(choices=choices), gr.update(value=notification, visible=True)
-        
-        def refresh_user_file_users():
-            if ui_service.is_admin():
-                users = user_management.get_all_users()
-                user_choices = [(f"{user['name']} ({user['email']})", user['email']) for user in users]
-                notification = '<div class="notification">🔄 Users refreshed</div>'
-                return gr.update(choices=user_choices), gr.update(value=notification, visible=True)
-            return gr.update(choices=[]), gr.update(value="Access denied", visible=True)
-        
-        def handle_user_file_refresh(user_email):
-            if ui_service.is_admin() and user_email:
-                user_files = user_file_service.get_user_file_list(user_email)
-                file_choices = [row[0] for row in user_files] if user_files else []
-                notification = '<div class="notification">🔄 User files refreshed</div>'
-                return gr.update(value=user_files), gr.update(choices=file_choices, value=[]), gr.update(value=notification, visible=True)
-            return gr.update(), gr.update(), gr.update(value="No user selected", visible=True)
-        
-        def select_all_user_files(user_email):
-            if ui_service.is_admin() and user_email:
-                user_files = user_file_service.get_user_file_list(user_email)
-                all_files = [row[0] for row in user_files] if user_files else []
-                return gr.update(value=all_files)
-            return gr.update(value=[])
-        
-        # Bind user file manager operations
+
+        # User file manager operations
         refresh_user_file_users_btn.click(fn=refresh_user_file_users, outputs=[user_file_users_dropdown, file_notification])
         user_file_users_dropdown.change(fn=select_user_for_file_manager, inputs=[user_file_users_dropdown], outputs=[user_file_selected_user_info, user_files_table, user_selected_files]).then(fn=lambda email: email, inputs=[user_file_users_dropdown], outputs=[selected_user_for_file_manager])
         user_upload_btn.click(fn=handle_user_file_upload, inputs=[selected_user_for_file_manager, user_file_upload], outputs=[user_files_table, user_upload_status, user_selected_files, file_notification])
         user_delete_btn.click(fn=handle_user_file_delete, inputs=[selected_user_for_file_manager, user_selected_files], outputs=[user_files_table, user_delete_status, user_selected_files, file_notification])
         user_refresh_btn.click(fn=handle_user_file_refresh, inputs=[selected_user_for_file_manager], outputs=[user_files_table, user_selected_files, file_notification])
+        user_reindex_btn.click(fn=handle_user_reindex, inputs=[selected_user_for_file_manager], outputs=[user_vector_status, file_notification])
+        user_cleanup_btn.click(fn=handle_user_cleanup_vector_db, inputs=[selected_user_for_file_manager], outputs=[user_vector_status, file_notification])
+        user_vector_stats_btn.click(fn=handle_user_vector_stats, inputs=[selected_user_for_file_manager], outputs=[user_vector_status, file_notification])
+        user_file_search_box.change(fn=handle_user_file_search, inputs=[selected_user_for_file_manager, user_file_search_box], outputs=[user_files_table, user_selected_files])
         user_select_all_btn.click(fn=select_all_user_files, inputs=[selected_user_for_file_manager], outputs=[user_selected_files])
-        
+
         # ========== USER MANAGEMENT HANDLERS ==========
         
         # Role management
@@ -1094,7 +1182,7 @@ def create_gradio_interface():
         add_to_whitelist_btn.click(fn=add_email_to_whitelist, inputs=[whitelist_email_input], outputs=[whitelist_table, selected_whitelist_emails, whitelist_email_input, file_notification])
         remove_from_whitelist_btn.click(fn=remove_from_whitelist, inputs=[selected_whitelist_emails], outputs=[whitelist_table, selected_whitelist_emails, file_notification])
         
-        # SPOC assignments - FIXED duplicate key handling
+        # SPOC assignments
         def load_spoc_assignments_for_dropdown(spoc_email):
             if not ui_service.is_admin() or not spoc_email:
                 return gr.update(choices=[], value=[])
