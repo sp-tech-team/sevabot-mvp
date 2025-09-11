@@ -301,44 +301,85 @@ class EnhancedUIService:
     
     # ========== FILE OPERATIONS ==========
     
-    def get_files_for_display(self, search_term: str = "") -> List[List[Any]]:
-        """Get files for display in Files tab (all users)"""
+    def _filter_file_columns(self, files: List[List[Any]], is_personal: bool = False) -> List[List[Any]]:
+        """Filter file data - keep all columns for personal files now"""
         try:
-            from file_services import enhanced_file_service
-            return enhanced_file_service.get_common_knowledge_file_list_for_users()
-        except Exception as e:
-            print(f"Error getting files for display: {e}")
-            return []
-    
-    def refresh_files_display(self) -> List[List[Any]]:
-        """Refresh files display with proper data format"""
-        try:
-            files = self.get_files_for_display()
-            print(f"DEBUG: Refreshing files display with {len(files)} files")
-            return files
-        except Exception as e:
-            print(f"ERROR in refresh_files_display: {e}")
-            return []
-    
-    def search_files_display(self, search_term: str) -> List[List[Any]]:
-        """Search files for display"""
-        try:
-            files = self.get_files_for_display()
-            if not search_term:
-                return files
-            
-            search_lower = search_term.lower()
             filtered_files = []
-            
             for file_row in files:
-                searchable_text = " ".join(str(cell).lower() for cell in file_row)
-                if search_lower in searchable_text:
-                    filtered_files.append(file_row)
-            
+                if len(file_row) >= 7:
+                    # For both common and personal: [Name, Size, Type, Uploaded, Source] (remove chunks[3], status[4])
+                    filtered_row = [file_row[0], file_row[1], file_row[2], file_row[5], file_row[6]]
+                    filtered_files.append(filtered_row)
             return filtered_files
         except Exception as e:
-            print(f"Error searching files: {e}")
+            print(f"Error filtering file columns: {e}")
             return []
+    
+    def get_common_files_for_display(self, search_term: str = "") -> List[List[Any]]:
+        """Get common knowledge files for Files tab display"""
+        try:
+            from file_services import enhanced_file_service
+            files = enhanced_file_service.get_common_knowledge_file_list(search_term)
+            return self._filter_file_columns(files, is_personal=False)
+        except Exception as e:
+            print(f"Error getting common files for display: {e}")
+            return []
+
+    def get_personal_files_for_display(self, search_term: str = "") -> List[List[Any]]:
+        """Get personal files for current user"""
+        try:
+            from file_services import enhanced_file_service
+            user_email = self.current_user.get("email", "")
+            if not user_email:
+                return []
+            
+            files = enhanced_file_service.get_user_file_list(user_email, search_term)
+            return self._filter_file_columns(files, is_personal=True)
+        except Exception as e:
+            print(f"Error getting personal files for display: {e}")
+            return []
+
+    def refresh_common_files_display(self) -> List[List[Any]]:
+        """Refresh common knowledge files display"""
+        try:
+            return self.get_common_files_for_display()
+        except Exception as e:
+            print(f"Error refreshing common files display: {e}")
+            return []
+
+    def refresh_personal_files_display(self) -> List[List[Any]]:
+        """Refresh personal files display"""
+        try:
+            return self.get_personal_files_for_display()
+        except Exception as e:
+            print(f"Error refreshing personal files display: {e}")
+            return []
+
+    def search_common_files_display(self, search_term: str) -> List[List[Any]]:
+        """Search common knowledge files"""
+        try:
+            return self.get_common_files_for_display(search_term)
+        except Exception as e:
+            print(f"Error searching common files: {e}")
+            return []
+
+    def search_personal_files_display(self, search_term: str) -> List[List[Any]]:
+        """Search personal files"""
+        try:
+            return self.get_personal_files_for_display(search_term)
+        except Exception as e:
+            print(f"Error searching personal files: {e}")
+            return []
+
+    def load_files_tab_data(self) -> Tuple[List[List[Any]], List[List[Any]]]:
+        """Load both common and personal files for Files tab"""
+        try:
+            common_files = self.get_common_files_for_display()
+            personal_files = self.get_personal_files_for_display()
+            return common_files, personal_files
+        except Exception as e:
+            print(f"Error loading files tab data: {e}")
+            return [], []
     
     # ========== COMMON KNOWLEDGE OPERATIONS ==========
     

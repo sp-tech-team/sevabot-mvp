@@ -236,6 +236,79 @@ def create_gradio_interface():
         .block { overflow: visible !important; }
         .panel-wrap { overflow: visible !important; }
         .app { overflow-y: auto !important; height: 100vh !important; }
+
+        .user-files-table .dataframe table,
+        .personal-files-table .dataframe table {
+            table-layout: fixed !important;
+            width: 100% !important;
+        }
+
+        .user-files-table .dataframe th,
+        .user-files-table .dataframe td,
+        .personal-files-table .dataframe th,
+        .personal-files-table .dataframe td {
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            white-space: nowrap !important;
+        }
+
+        /* Force same column widths for user tables */
+        .user-files-table .dataframe th:nth-child(1),
+        .user-files-table .dataframe td:nth-child(1),
+        .personal-files-table .dataframe th:nth-child(1),
+        .personal-files-table .dataframe td:nth-child(1) {
+            width: 35% !important;
+            min-width: 200px !important;
+        }
+
+        .user-files-table .dataframe th:nth-child(2),
+        .user-files-table .dataframe td:nth-child(2),
+        .personal-files-table .dataframe th:nth-child(2),
+        .personal-files-table .dataframe td:nth-child(2) {
+            width: 12% !important;
+            min-width: 80px !important;
+        }
+
+        .user-files-table .dataframe th:nth-child(3),
+        .user-files-table .dataframe td:nth-child(3),
+        .personal-files-table .dataframe th:nth-child(3),
+        .personal-files-table .dataframe td:nth-child(3) {
+            width: 15% !important;
+            min-width: 100px !important;
+        }
+
+        .user-files-table .dataframe th:nth-child(4),
+        .user-files-table .dataframe td:nth-child(4),
+        .personal-files-table .dataframe th:nth-child(4),
+        .personal-files-table .dataframe td:nth-child(4) {
+            width: 10% !important;
+            min-width: 60px !important;
+        }
+
+        .user-files-table .dataframe th:nth-child(5),
+        .user-files-table .dataframe td:nth-child(5),
+        .personal-files-table .dataframe th:nth-child(5),
+        .personal-files-table .dataframe td:nth-child(5) {
+            width: 13% !important;
+            min-width: 90px !important;
+        }
+
+        .user-files-table .dataframe th:nth-child(6),
+        .user-files-table .dataframe td:nth-child(6),
+        .personal-files-table .dataframe th:nth-child(6),
+        .personal-files-table .dataframe td:nth-child(6) {
+            width: 12% !important;
+            min-width: 85px !important;
+        }
+
+        .user-files-table .dataframe th:nth-child(7),
+        .user-files-table .dataframe td:nth-child(7),
+        .personal-files-table .dataframe th:nth-child(7),
+        .personal-files-table .dataframe td:nth-child(7) {
+            width: 13% !important;
+            min-width: 90px !important;
+        }
+
         """) as demo:
         
         # State variables
@@ -312,7 +385,8 @@ def create_gradio_interface():
                             label="",
                             height="55vh",
                             show_copy_button=True,
-                            show_share_button=False
+                            show_share_button=False,
+                            type="messages"
                         )
                         
                         # Feedback row
@@ -348,25 +422,59 @@ def create_gradio_interface():
             
             # Files Tab (for all users)
             with gr.TabItem("📄 Files", visible=False) as files_tab:
-                gr.Markdown("## 📚 Available Documents")
+                gr.Markdown("## 📚 Document Repository")
                 
-                with gr.Row():
-                    user_file_search = gr.Textbox(
-                        label="Search Files",
-                        placeholder="Search by name, type, or date...",
-                        interactive=True,
-                        scale=4
+                # Common Knowledge Documents Section
+                with gr.Column():
+                    gr.Markdown("### 🌐 Common Knowledge Documents")
+                    gr.Markdown("*Shared documents available to all users*")
+                    
+                    with gr.Row():
+                        common_search = gr.Textbox(
+                            label="Search Common Documents",
+                            placeholder="Search by name, type, or status...",
+                            interactive=True,
+                            scale=4
+                        )
+                        refresh_common_btn = gr.Button("🔄 Refresh", variant="secondary", scale=1)
+                    
+                    common_files_table = gr.Dataframe(
+                        label="",
+                        headers=["File Name", "Size", "Type", "Uploaded", "Source"],  # Matches file manager after filtering
+                        datatype=["str", "str", "str", "str", "str"],
+                        interactive=False,
+                        wrap=True,
+                        value=[],
+                        row_count=(10, "dynamic"),
+                        column_widths=["56%", "6%", "10%", "8%", "20%"]
                     )
-                    refresh_user_files_btn = gr.Button("🔄", variant="secondary", scale=1)
+
+                    gr.Markdown("<br>")
                 
-                user_files_table = gr.Dataframe(
-                    label="",
-                    headers=["Document Name", "Size", "Type", "Added Date"],
-                    datatype=["str", "str", "str", "str"],
-                    interactive=False,
-                    wrap=True,
-                    value=[]
-                )
+                    # Personal Documents Section
+                    with gr.Column():
+                        gr.Markdown("### 👤 Personal Documents")
+                        gr.Markdown("*Your personal document uploads*")
+                        
+                        with gr.Row():
+                            personal_search = gr.Textbox(
+                                label="Search Personal Documents", 
+                                placeholder="Search your documents...",
+                                interactive=True,
+                                scale=4
+                            )
+                            refresh_personal_btn = gr.Button("🔄 Refresh", variant="secondary", scale=1)
+                        
+                        personal_files_table = gr.Dataframe(
+                            label="",
+                            headers=["File Name", "Size", "Type", "Uploaded", "Source"],   # Matches user file manager after filtering
+                            datatype=["str", "str", "str", "str", "str"],
+                            interactive=False,
+                            wrap=True,
+                            value=[],
+                            row_count=(10, "dynamic"),
+                            column_widths=["56%", "6%", "10%", "8%", "20%"]
+                        )
             
             # File Manager (Common) Tab
             with gr.TabItem("📂 File Manager (Common)", visible=False) as file_manager_common_tab:
@@ -420,10 +528,12 @@ def create_gradio_interface():
                     
                     files_table = gr.Dataframe(
                         label="",
-                        headers=["File Name", "Size", "Type", "Chunks", "Status", "Uploaded", "Uploaded By"],
+                        headers=["File Name", "Size", "Type", "Chunks", "Status", "Uploaded", "Source"],  # Changed "Uploaded By" to "Source"
                         datatype=["str", "str", "str", "number", "str", "str", "str"],
                         interactive=False,
-                        wrap=True
+                        wrap=True,
+                        row_count=(10, "dynamic"),
+                        column_widths=["50%", "6%", "10%", "5%", "8%", "8%", "13%"]
                     )
                     
                     # Status displays
@@ -498,7 +608,9 @@ def create_gradio_interface():
                         headers=["File Name", "Size", "Type", "Chunks", "Status", "Uploaded", "User"],
                         datatype=["str", "str", "str", "number", "str", "str", "str"],
                         interactive=False,
-                        wrap=True
+                        wrap=True,
+                        row_count=(10, "dynamic"),
+                        column_widths=["50%", "6%", "10%", "5%", "8%", "8%", "13%"]
                     )
                     
                     # Status displays
@@ -651,33 +763,62 @@ def create_gradio_interface():
         
         # ========== EVENT HANDLERS ==========
         
-        # Enhanced file loading and refresh functions
-        def load_user_files():
-            """Load files for Files tab - works for all users"""
+        def load_common_files_for_tab():
+            """Load common knowledge files for Files tab"""
             try:
-                files = ui_service.get_files_for_display()
-                return files
+                return ui_service.get_common_files_for_display()
             except Exception as e:
-                print(f"ERROR in load_user_files(): {e}")
+                print(f"Error loading common files: {e}")
                 return []
 
-        def refresh_files_tab():
-            """Refresh files display in Files tab"""
+        def load_personal_files_for_tab():
+            """Load personal files for current user"""
             try:
-                files = ui_service.refresh_files_display()
-                return files
+                return ui_service.get_personal_files_for_display()
             except Exception as e:
-                print(f"ERROR in refresh_files_tab: {e}")
+                print(f"Error loading personal files: {e}")
                 return []
 
-        def handle_user_file_search(search_term):
-            """Handle file search in Files tab"""
+        def refresh_common_files():
+            """Refresh common knowledge files"""
             try:
-                files = ui_service.search_files_display(search_term)
-                return files
+                return ui_service.refresh_common_files_display()
             except Exception as e:
-                print(f"ERROR in handle_user_file_search: {e}")
+                print(f"Error refreshing common files: {e}")
                 return []
+
+        def refresh_personal_files():
+            """Refresh personal files"""
+            try:
+                return ui_service.refresh_personal_files_display()
+            except Exception as e:
+                print(f"Error refreshing personal files: {e}")
+                return []
+
+        def search_common_files(search_term):
+            """Search common knowledge files"""
+            try:
+                return ui_service.search_common_files_display(search_term or "")
+            except Exception as e:
+                print(f"Error searching common files: {e}")
+                return []
+
+        def search_personal_files(search_term):
+            """Search personal files"""
+            try:
+                return ui_service.search_personal_files_display(search_term or "")
+            except Exception as e:
+                print(f"Error searching personal files: {e}")
+                return []
+
+        def on_files_tab_select():
+            """Load both file sections when Files tab is selected"""
+            try:
+                return ui_service.load_files_tab_data()
+            except Exception as e:
+                print(f"Error on files tab select: {e}")
+                return [], []
+
 
         # Enhanced common knowledge file handlers
         def handle_ck_upload(files):
@@ -932,7 +1073,7 @@ def create_gradio_interface():
         )
         
         # Load user files for regular users
-        demo.load(fn=load_user_files, outputs=[user_files_table])
+        demo.load(fn=on_files_tab_select, outputs=[common_files_table, personal_files_table])
 
         # Load admin data
         def load_admin_data():
@@ -1056,8 +1197,11 @@ def create_gradio_interface():
         # ========== FILE MANAGEMENT EVENT BINDINGS ==========
         
         # Files tab bindings (for all users)
-        refresh_user_files_btn.click(fn=refresh_files_tab, outputs=[user_files_table])
-        user_file_search.change(fn=handle_user_file_search, inputs=[user_file_search], outputs=[user_files_table])
+        files_tab.select(fn=on_files_tab_select, outputs=[common_files_table, personal_files_table])
+        refresh_common_btn.click(fn=refresh_common_files, outputs=[common_files_table])
+        refresh_personal_btn.click(fn=refresh_personal_files, outputs=[personal_files_table])
+        common_search.change(fn=search_common_files, inputs=[common_search], outputs=[common_files_table])
+        personal_search.change(fn=search_personal_files, inputs=[personal_search], outputs=[personal_files_table])
 
         # Common knowledge file operations
         upload_btn.click(fn=handle_ck_upload, inputs=[file_upload], outputs=[files_table, upload_status, selected_files, file_notification])

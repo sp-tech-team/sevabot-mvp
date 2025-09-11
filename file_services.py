@@ -603,18 +603,31 @@ class EnhancedFileService:
             return 0
     
     def _create_common_knowledge_file_row(self, file_path: Path) -> Optional[List[Any]]:
-        """Create file row for common knowledge files"""
+        """Create file row for common knowledge files with real uploader names"""
         try:
             from rag_service import rag_service
             
             stat = file_path.stat()
             file_size = stat.st_size
             
-            # Get chunks count
             chunks_count = rag_service.get_file_chunks_count(file_path.name, is_common=True)
             status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
-            
             upload_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
+            
+            # Get real uploader name
+            uploader_name = "System"
+            try:
+                if IS_PRODUCTION:
+                    result = self.supabase.table("common_knowledge_documents")\
+                        .select("uploaded_by")\
+                        .eq("file_name", file_path.name)\
+                        .execute()
+                    
+                    if result.data and result.data[0].get("uploaded_by"):
+                        uploader_email = result.data[0]["uploaded_by"]
+                        uploader_name = self.get_user_display_name(uploader_email)  # Use actual name
+            except Exception as e:
+                print(f"Error getting uploader info: {e}")
             
             return [
                 file_path.name,
@@ -623,7 +636,7 @@ class EnhancedFileService:
                 chunks_count,
                 status,
                 upload_date,
-                "Local"
+                uploader_name
             ]
             
         except Exception as e:
@@ -631,18 +644,27 @@ class EnhancedFileService:
             return None
     
     def _create_user_file_row(self, file_path: Path, user_email: str) -> Optional[List[Any]]:
-        """Create file row for user files"""
+        """Create file row for user files with actual user name"""
         try:
             from rag_service import rag_service
             
             stat = file_path.stat()
             file_size = stat.st_size
             
-            # Get chunks count (simplified for user files)
-            chunks_count = 0  # Could be enhanced to check user vector store
-            status = "📄 Available"
+            # Get chunks count from user vector store
+            try:
+                vectorstore = rag_service.get_user_vectorstore(user_email)
+                collection = vectorstore._collection
+                existing_results = collection.get(where={"file_name": file_path.name})
+                chunks_count = len(existing_results['ids']) if existing_results and existing_results['ids'] else 0
+            except Exception as e:
+                chunks_count = 0
             
+            status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
             upload_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
+            
+            # Get actual user display name
+            user_display = self.get_user_display_name(user_email)
             
             return [
                 file_path.name,
@@ -651,15 +673,15 @@ class EnhancedFileService:
                 chunks_count,
                 status,
                 upload_date,
-                user_email
+                user_display  # Actual user name
             ]
             
         except Exception as e:
             print(f"Error reading user file {file_path}: {e}")
             return None
-    
+        
     def _get_cloud_common_knowledge_files(self, local_files: List[List[Any]], search_term: str) -> List[List[Any]]:
-        """Get cloud files for common knowledge repository"""
+        """Get cloud files with real uploader names"""
         cloud_files = []
         try:
             result = self.supabase.table("common_knowledge_documents")\
@@ -671,12 +693,15 @@ class EnhancedFileService:
             
             if result.data:
                 for file_info in result.data:
-                    # Skip if we already have this file locally
                     if file_info["file_name"] in local_file_names:
                         continue
                     
                     chunks_count = file_info.get("chunks_count", 0)
                     status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+                    
+                    # Get real uploader name
+                    uploader_email = file_info.get("uploaded_by", "system")
+                    uploader_name = uploader_email.split('@')[0].replace('.', ' ').title() if '@' in uploader_email else "System"
                     
                     file_row = [
                         file_info["file_name"],
@@ -685,7 +710,7 @@ class EnhancedFileService:
                         chunks_count,
                         status,
                         file_info["uploaded_at"][:10],
-                        file_info.get("uploaded_by", "Cloud")
+                        uploader_name  # Real uploader name
                     ]
                     
                     if self._matches_search(file_row, search_term):
@@ -695,6 +720,24 @@ class EnhancedFileService:
             print(f"Error getting cloud files: {e}")
         
         return cloud_files
+    
+    def get_user_display_name(self, email: str) -> str:
+        """Get actual user display name from database"""
+        try:
+            if IS_PRODUCTION:
+                result = self.supabase.table("users")\
+                    .select("name")\
+                    .eq("email", email)\
+                    .execute()
+                
+                if result.data and result.data[0].get("name"):
+                    return result.data[0]["name"]
+            
+            # Fallback to formatted email
+            return email.split('@')[0].replace('.', ' ').replace('-', ' ').title()
+        except Exception as e:
+            print(f"Error getting user name: {e}")
+            return email.split('@')[0].replace('.', ' ').title()
     
     def _matches_search(self, file_row: List[Any], search_term: str) -> bool:
         """Check if file row matches search term"""
