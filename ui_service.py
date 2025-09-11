@@ -132,7 +132,11 @@ class EnhancedUIService:
             return history or [], "", conversation_id, gr.update(), ""
         
         if not self.is_logged_in():
-            return (history or []) + [[message, "Please log in to continue"]], "", conversation_id, gr.update(), ""
+            error_history = (history or []) + [
+                {"role": "user", "content": message},
+                {"role": "assistant", "content": "Please log in to continue"}
+            ]
+            return error_history, "", conversation_id, gr.update(), ""
         
         try:
             # Create new conversation if needed
@@ -165,10 +169,13 @@ class EnhancedUIService:
             # Update conversation timestamp
             chat_service.update_conversation_timestamp(conversation_id)
             
-            # Update history and sessions
-            user_msg = {"role": "user", "content": message}
-            assistant_msg = {"role": "assistant", "content": response}
-            new_history = (history or []) + [[message, response]]
+            # Update history - add both messages to the flat list
+            new_history = (history or []) + [
+                {"role": "user", "content": message},
+                {"role": "assistant", "content": response}
+            ]
+            
+            # Update sessions
             conversations = chat_service.get_user_conversations(self.current_user["email"])
             session_choices = [(conv["title"], conv["id"]) for conv in conversations]
             sessions_update = gr.update(choices=session_choices, value=conversation_id)
@@ -177,11 +184,13 @@ class EnhancedUIService:
             
         except Exception as e:
             error_msg = f"Error: {str(e)}"
-            user_msg = {"role": "user", "content": message}
-            assistant_msg = {"role": "assistant", "content": error_msg}
-            return (history or []) + [user_msg, assistant_msg], "", conversation_id, gr.update(), error_msg
+            error_history = (history or []) + [
+                {"role": "user", "content": message},
+                {"role": "assistant", "content": error_msg}
+            ]
+            return error_history, "", conversation_id, gr.update(), error_msg
 
-    def load_conversation(self, conversation_id: Optional[str]) -> Tuple[List[List[str]], Optional[str], str]:
+    def load_conversation(self, conversation_id: Optional[str]) -> Tuple[List[Dict], Optional[str], str]:
         """Load conversation history with feedback"""
         if not conversation_id:
             return [], None, ""
@@ -201,7 +210,7 @@ class EnhancedUIService:
             if not result.data:
                 return [], conversation_id, "Empty conversation loaded"
             
-            # Create proper message format for Gradio
+            # Create flat list of message dictionaries
             gradio_history = []
             user_msg = None
             
@@ -232,6 +241,7 @@ class EnhancedUIService:
                             
                             assistant_content += f"\n\n*[Feedback: {feedback_display}]*"
                     
+                    # Add both messages to flat list
                     gradio_history.extend([
                         {"role": "user", "content": user_msg},
                         {"role": "assistant", "content": assistant_content}
@@ -250,7 +260,7 @@ class EnhancedUIService:
                     {"role": "assistant", "content": assistant_msg}
                 ])
             return gradio_history, conversation_id, f"Loaded conversation (feedback unavailable)"
-
+    
     def create_new_chat(self) -> Tuple[List[List[str]], Optional[str], gr.update, str]:
         """Create new chat with greeting"""
         existing_conversations = chat_service.get_user_conversations(self.current_user["email"])
