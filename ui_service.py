@@ -166,6 +166,8 @@ class EnhancedUIService:
             chat_service.update_conversation_timestamp(conversation_id)
             
             # Update history and sessions
+            user_msg = {"role": "user", "content": message}
+            assistant_msg = {"role": "assistant", "content": response}
             new_history = (history or []) + [[message, response]]
             conversations = chat_service.get_user_conversations(self.current_user["email"])
             session_choices = [(conv["title"], conv["id"]) for conv in conversations]
@@ -175,8 +177,10 @@ class EnhancedUIService:
             
         except Exception as e:
             error_msg = f"Error: {str(e)}"
-            return (history or []) + [[message, error_msg]], "", conversation_id, gr.update(), error_msg
-    
+            user_msg = {"role": "user", "content": message}
+            assistant_msg = {"role": "assistant", "content": error_msg}
+            return (history or []) + [user_msg, assistant_msg], "", conversation_id, gr.update(), error_msg
+
     def load_conversation(self, conversation_id: Optional[str]) -> Tuple[List[List[str]], Optional[str], str]:
         """Load conversation history with feedback"""
         if not conversation_id:
@@ -228,17 +232,25 @@ class EnhancedUIService:
                             
                             assistant_content += f"\n\n*[Feedback: {feedback_display}]*"
                     
-                    gradio_history.append([user_msg, assistant_content])
+                    gradio_history.extend([
+                        {"role": "user", "content": user_msg},
+                        {"role": "assistant", "content": assistant_content}
+                    ])
                     user_msg = None
             
-            return gradio_history, conversation_id, f"Loaded conversation with {len(gradio_history)} messages"
+            return gradio_history, conversation_id, f"Loaded conversation with {len(gradio_history)//2} messages"
             
         except Exception as e:
             print(f"Error loading conversation: {e}")
             history = chat_service.get_conversation_history(conversation_id)
-            gradio_history = [[user_msg, assistant_msg] for user_msg, assistant_msg in history]
+            gradio_history = []
+            for user_msg, assistant_msg in history:
+                gradio_history.extend([
+                    {"role": "user", "content": user_msg},
+                    {"role": "assistant", "content": assistant_msg}
+                ])
             return gradio_history, conversation_id, f"Loaded conversation (feedback unavailable)"
-    
+
     def create_new_chat(self) -> Tuple[List[List[str]], Optional[str], gr.update, str]:
         """Create new chat with greeting"""
         existing_conversations = chat_service.get_user_conversations(self.current_user["email"])
@@ -249,7 +261,7 @@ class EnhancedUIService:
         
         user_name = self.get_display_name()
         greeting = f"Namaskaram {user_name}! Ready to explore the knowledge repository?"
-        initial_history = [["", greeting]]
+        initial_history = [{"role": "assistant", "content": greeting}]
         
         conversations = chat_service.get_user_conversations(self.current_user["email"])
         session_choices = [(conv["title"], conv["id"]) for conv in conversations]

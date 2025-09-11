@@ -1429,16 +1429,16 @@ def create_gradio_interface():
                 
                 ui_service.submit_feedback(message_id, feedback_data)
                 
-                if history and len(history) > 0:
-                    last_exchange = history[-1]
-                    if len(last_exchange) >= 2:
+                for i in range(len(history) - 1, -1, -1):
+                    if history[i].get("role") == "assistant":
                         feedback_emoji = {"fully": "✅", "partially": "⚠️", "nopes": "❌"}[feedback_type]
                         feedback_display = f"{feedback_emoji} {feedback_type.title()}"
                         if remarks and remarks.strip():
                             feedback_display += f" - {remarks.strip()}"
                         
-                        updated_response = last_exchange[1] + f"\n\n*[Feedback: {feedback_display}]*"
-                        history[-1] = [last_exchange[0], updated_response]
+                        updated_content = history[i]["content"] + f"\n\n*[Feedback: {feedback_display}]*"
+                        history[i] = {"role": "assistant", "content": updated_content}
+                        break
                 
                 return gr.update(interactive=True), gr.update(visible=False), history, "", gr.update(visible=False)
         
