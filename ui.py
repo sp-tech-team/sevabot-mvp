@@ -315,7 +315,8 @@ def create_gradio_interface():
         current_conversation_id = gr.State(None)
         last_assistant_message_id = gr.State(None)
         selected_user_for_file_manager = gr.State(None)
-        
+        selected_chat_user = gr.State(None)
+
         # Header with user greeting
         with gr.Row():
             with gr.Column(scale=3):
@@ -1145,12 +1146,23 @@ def create_gradio_interface():
         # Chat user selection with proper conversation loading
         def select_user_for_chat(selected_user_email):
             if not ui_service.is_admin_or_spoc() or not selected_user_email:
-                return gr.update()
+                return gr.update(), selected_user_email
             
-            conversations = chat_service.get_user_conversations(selected_user_email)
+            # Get conversations for the selected user
+            if ui_service.is_admin():
+                conversations = chat_service.get_user_conversations(selected_user_email)
+            elif ui_service.is_spoc():
+                # Check if SPOC has access to this user
+                assigned_users = user_management.get_spoc_assignments(ui_service.current_user["email"])
+                if selected_user_email not in assigned_users:
+                    return gr.update(), None
+                conversations = chat_service.get_user_conversations(selected_user_email)
+            else:
+                return gr.update(), None
+            
             session_choices = [(conv["title"], conv["id"]) for conv in conversations]
             
-            return gr.update(choices=session_choices, value=None)
+            return gr.update(choices=session_choices, value=None), selected_user_email
         
         def refresh_chat_users():
             if ui_service.is_admin():
@@ -1172,7 +1184,7 @@ def create_gradio_interface():
             session_choices = [(conv["title"], conv["id"]) for conv in conversations]
             return gr.update(choices=session_choices, value=None)
         
-        chat_users_dropdown.change(fn=select_user_for_chat, inputs=[chat_users_dropdown], outputs=[sessions_radio])
+        chat_users_dropdown.change(fn=select_user_for_chat, inputs=[chat_users_dropdown], outputs=[sessions_radio, selected_chat_user])
         refresh_chat_users_btn.click(fn=refresh_chat_users, outputs=[chat_users_dropdown])
         refresh_chat_btn.click(fn=refresh_current_user_chats, outputs=[sessions_radio])
         
@@ -1186,14 +1198,14 @@ def create_gradio_interface():
             
             return new_history, empty_msg, new_conv_id, sessions_update, status, gr.update(interactive=False), gr.update(visible=True), assistant_msg_id
         
-        message_input.submit(fn=handle_send_message, inputs=[message_input, chatbot, current_conversation_id], outputs=[chatbot, message_input, current_conversation_id, sessions_radio, action_status, message_input, feedback_row, last_assistant_message_id])
-        send_btn.click(fn=handle_send_message, inputs=[message_input, chatbot, current_conversation_id], outputs=[chatbot, message_input, current_conversation_id, sessions_radio, action_status, message_input, feedback_row, last_assistant_message_id])
-        
+        message_input.submit(fn=lambda msg, hist, conv_id, target_user: ui_service.send_message_for_user(msg, hist, conv_id, target_user), inputs=[message_input, chatbot, current_conversation_id, selected_chat_user], outputs=[chatbot, message_input, current_conversation_id, sessions_radio, action_status, message_input, feedback_row, last_assistant_message_id])
+        send_btn.click(fn=lambda msg, hist, conv_id, target_user: ui_service.send_message_for_user(msg, hist, conv_id, target_user), inputs=[message_input, chatbot, current_conversation_id, selected_chat_user], outputs=[chatbot, message_input, current_conversation_id, sessions_radio, action_status, message_input, feedback_row, last_assistant_message_id])
+
         # Session management
-        new_chat_btn.click(fn=ui_service.create_new_chat, outputs=[chatbot, current_conversation_id, sessions_radio, action_status])
-        sessions_radio.change(fn=ui_service.load_conversation, inputs=[sessions_radio], outputs=[chatbot, current_conversation_id, action_status])
-        delete_chat_btn.click(fn=ui_service.delete_conversation, inputs=[sessions_radio], outputs=[chatbot, current_conversation_id, sessions_radio, action_status])
-        
+        new_chat_btn.click(fn=lambda target_user: ui_service.create_new_chat_for_user(target_user), inputs=[selected_chat_user], outputs=[chatbot, current_conversation_id, sessions_radio, action_status])
+        sessions_radio.change(fn=lambda conv_id, target_user: ui_service.load_conversation_for_user(conv_id, target_user), inputs=[sessions_radio, selected_chat_user], outputs=[chatbot, current_conversation_id, action_status])
+        delete_chat_btn.click(fn=lambda conv_id, target_user: ui_service.delete_conversation_for_user(conv_id, target_user), inputs=[sessions_radio, selected_chat_user], outputs=[chatbot, current_conversation_id, sessions_radio, action_status])
+
         # ========== FILE MANAGEMENT EVENT BINDINGS ==========
         
         # Files tab bindings (for all users)

@@ -126,30 +126,55 @@ class EnhancedUIService:
     
     # ========== CHAT OPERATIONS ==========
     
-    def send_message(self, message: str, history: List[List[str]], conversation_id: Optional[str]) -> Tuple[List[List[str]], str, Optional[str], gr.update, str]:
-        """Send message and get response"""
+    def send_message_for_user(self, message: str, history: List[Dict], conversation_id: Optional[str], target_user_email: str = None) -> Tuple[List[Dict], str, Optional[str], gr.update, str, gr.update, gr.update, Optional[str]]:
+        """Send message - for specific user if admin/SPOC viewing user chats"""
         if not message.strip():
-            return history or [], "", conversation_id, gr.update(), ""
+            return history or [], "", conversation_id, gr.update(), "", gr.update(interactive=True), gr.update(visible=False), None
         
         if not self.is_logged_in():
             error_history = (history or []) + [
                 {"role": "user", "content": message},
                 {"role": "assistant", "content": "Please log in to continue"}
             ]
-            return error_history, "", conversation_id, gr.update(), ""
+            return error_history, "", conversation_id, gr.update(), "Please log in to continue", gr.update(interactive=True), gr.update(visible=False), None
+        
+        # Determine which user this message is for
+        if target_user_email and self.is_admin_or_spoc():
+            user_email = target_user_email
+            
+            # For SPOC, verify access
+            if self.is_spoc():
+                from user_management import user_management
+                assigned_users = user_management.get_spoc_assignments(self.current_user["email"])
+                if target_user_email not in assigned_users:
+                    error_history = (history or []) + [
+                        {"role": "user", "content": message},
+                        {"role": "assistant", "content": "Access denied to this user's chats"}
+                    ]
+                    return error_history, "", conversation_id, gr.update(), "Access denied", gr.update(interactive=True), gr.update(visible=False), None
+        else:
+            user_email = self.current_user["email"]
         
         try:
-            # Create new conversation if needed
+            # Create new conversation if needed (for the target user)
             if not conversation_id:
-                existing_conversations = chat_service.get_user_conversations(self.current_user["email"])
+                existing_conversations = chat_service.get_user_conversations(user_email)
                 if len(existing_conversations) >= MAX_SESSIONS_PER_USER:
-                    return (history or []) + [[message, ERROR_MESSAGES["session_limit"]]], "", conversation_id, gr.update(), ERROR_MESSAGES["session_limit"]
+                    error_history = (history or []) + [
+                        {"role": "user", "content": message},
+                        {"role": "assistant", "content": ERROR_MESSAGES["session_limit"]}
+                    ]
+                    return error_history, "", conversation_id, gr.update(), ERROR_MESSAGES["session_limit"], gr.update(interactive=True), gr.update(visible=False), None
                 
                 title = chat_service.generate_title(message)
-                conversation_id = chat_service.create_conversation(self.current_user["email"], title)
+                conversation_id = chat_service.create_conversation(user_email, title)  # Create for target user
                 
                 if not conversation_id:
-                    return (history or []) + [[message, "Error creating conversation"]], "", conversation_id, gr.update(), "Error creating conversation"
+                    error_history = (history or []) + [
+                        {"role": "user", "content": message},
+                        {"role": "assistant", "content": "Error creating conversation"}
+                    ]
+                    return error_history, "", conversation_id, gr.update(), "Error creating conversation", gr.update(interactive=True), gr.update(visible=False), None
                 
                 self.current_conversation_id = conversation_id
             
@@ -169,18 +194,18 @@ class EnhancedUIService:
             # Update conversation timestamp
             chat_service.update_conversation_timestamp(conversation_id)
             
-            # Update history - add both messages to the flat list
+            # Update history
             new_history = (history or []) + [
                 {"role": "user", "content": message},
                 {"role": "assistant", "content": response}
             ]
             
-            # Update sessions
-            conversations = chat_service.get_user_conversations(self.current_user["email"])
+            # Get updated sessions for the target user
+            conversations = chat_service.get_user_conversations(user_email)
             session_choices = [(conv["title"], conv["id"]) for conv in conversations]
             sessions_update = gr.update(choices=session_choices, value=conversation_id)
             
-            return new_history, "", conversation_id, sessions_update, ""
+            return new_history, "", conversation_id, sessions_update, "", gr.update(interactive=False), gr.update(visible=True), assistant_msg_id
             
         except Exception as e:
             error_msg = f"Error: {str(e)}"
@@ -188,18 +213,39 @@ class EnhancedUIService:
                 {"role": "user", "content": message},
                 {"role": "assistant", "content": error_msg}
             ]
-            return error_history, "", conversation_id, gr.update(), error_msg
+            return error_history, "", conversation_id, gr.update(), error_msg, gr.update(interactive=True), gr.update(visible=False), None
 
-    def load_conversation(self, conversation_id: Optional[str]) -> Tuple[List[Dict], Optional[str], str]:
-        """Load conversation history with feedback"""
+    def load_conversation_for_user(self, conversation_id: Optional[str], target_user_email: str = None) -> Tuple[List[Dict], Optional[str], str]:
+        """Load conversation history - for specific user if admin/SPOC viewing user chats"""
         if not conversation_id:
             return [], None, ""
         
-        try:
-            self.current_conversation_id = conversation_id
+        # Determine which user's conversation to load
+        if target_user_email and self.is_admin_or_spoc():
+            user_email = target_user_email
             
-            # Get messages with feedback from database
+            # For SPOC, verify access
+            if self.is_spoc():
+                from user_management import user_management
+                assigned_users = user_management.get_spoc_assignments(self.current_user["email"])
+                if target_user_email not in assigned_users:
+                    return [], None, "Access denied to this user's chats"
+        else:
+            user_email = self.current_user["email"]
+        
+        try:
+            # Verify the conversation belongs to the target user
             supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+            conv_result = supabase.table("conversations")\
+                .select("user_id")\
+                .eq("id", conversation_id)\
+                .execute()
+            
+            if not conv_result.data or conv_result.data[0]["user_id"] != user_email:
+                return [], None, f"Conversation doesn't belong to {user_email}"
+            
+            # Load the conversation (rest of your existing logic)
+            self.current_conversation_id = conversation_id
             
             result = supabase.table("messages")\
                 .select("*")\
@@ -210,7 +256,7 @@ class EnhancedUIService:
             if not result.data:
                 return [], conversation_id, "Empty conversation loaded"
             
-            # Create flat list of message dictionaries
+            # Create flat list of message dictionaries (your existing logic)
             gradio_history = []
             user_msg = None
             
@@ -220,7 +266,7 @@ class EnhancedUIService:
                 elif msg["role"] == "assistant" and user_msg:
                     assistant_content = msg["content"]
                     
-                    # Add feedback if exists
+                    # Add feedback if exists (your existing logic)
                     if msg.get("feedback"):
                         feedback_data = str(msg["feedback"]).strip()
                         if feedback_data and feedback_data != "None":
@@ -241,72 +287,104 @@ class EnhancedUIService:
                             
                             assistant_content += f"\n\n*[Feedback: {feedback_display}]*"
                     
-                    # Add both messages to flat list
                     gradio_history.extend([
                         {"role": "user", "content": user_msg},
                         {"role": "assistant", "content": assistant_content}
                     ])
                     user_msg = None
             
-            return gradio_history, conversation_id, f"Loaded conversation with {len(gradio_history)//2} messages"
-            
+            return gradio_history, conversation_id, f"Loaded conversation for {user_email}"
+        
         except Exception as e:
             print(f"Error loading conversation: {e}")
-            history = chat_service.get_conversation_history(conversation_id)
-            gradio_history = []
-            for user_msg, assistant_msg in history:
-                gradio_history.extend([
-                    {"role": "user", "content": user_msg},
-                    {"role": "assistant", "content": assistant_msg}
-                ])
-            return gradio_history, conversation_id, f"Loaded conversation (feedback unavailable)"
-    
-    def create_new_chat(self) -> Tuple[List[List[str]], Optional[str], gr.update, str]:
-        """Create new chat with greeting"""
-        existing_conversations = chat_service.get_user_conversations(self.current_user["email"])
+            return [], conversation_id, f"Error loading conversation: {str(e)}"
+        
+    def create_new_chat_for_user(self, target_user_email: str = None) -> Tuple[List[Dict], Optional[str], gr.update, str]:
+        """Create new chat - for specific user if admin/SPOC viewing user chats"""
+        # Determine which user to create chat for
+        if target_user_email and self.is_admin_or_spoc():
+            # Admin/SPOC creating chat for viewed user
+            user_email = target_user_email
+            
+            # For SPOC, verify they have access to this user
+            if self.is_spoc():
+                from user_management import user_management
+                assigned_users = user_management.get_spoc_assignments(self.current_user["email"])
+                if target_user_email not in assigned_users:
+                    return [], None, gr.update(), "Access denied to this user's chats"
+        else:
+            # Regular user or admin/SPOC creating their own chat
+            user_email = self.current_user["email"]
+        
+        # Check session limits for target user
+        existing_conversations = chat_service.get_user_conversations(user_email)
         if len(existing_conversations) >= MAX_SESSIONS_PER_USER:
-            return [], None, gr.update(), ERROR_MESSAGES["session_limit"]
+            return [], None, gr.update(), f"User {user_email} has reached session limit"
         
         self.current_conversation_id = None
         
-        user_name = self.get_display_name()
+        # Get display name for greeting
+        if user_email == self.current_user["email"]:
+            user_name = self.get_display_name()
+        else:
+            # Get target user's name
+            from user_management import user_management
+            users = user_management.get_all_users()
+            target_user = next((u for u in users if u['email'] == user_email), None)
+            user_name = target_user['name'].split()[0] if target_user else user_email.split('@')[0]
+        
         greeting = f"Namaskaram {user_name}! Ready to explore the knowledge repository?"
         initial_history = [{"role": "assistant", "content": greeting}]
         
-        conversations = chat_service.get_user_conversations(self.current_user["email"])
+        # Get updated session choices for the target user
+        conversations = chat_service.get_user_conversations(user_email)
         session_choices = [(conv["title"], conv["id"]) for conv in conversations]
         sessions_update = gr.update(choices=session_choices, value=None)
         
-        return initial_history, None, sessions_update, "New chat ready"
+        return initial_history, None, sessions_update, f"New chat ready for {user_email}"
     
-    def delete_conversation(self, conversation_id: Optional[str]) -> Tuple[List[List[str]], Optional[str], gr.update, str]:
-        """Delete conversation"""
+    def delete_conversation_for_user(self, conversation_id: Optional[str], target_user_email: str = None) -> Tuple[List[Dict], Optional[str], gr.update, str]:
+        """Delete conversation - for specific user if admin/SPOC viewing user chats"""
         if not conversation_id:
             return [], None, gr.update(), "No conversation selected"
         
-        try:
-            # For non-admins, only allow deleting own conversations
-            if not self.is_admin():
-                supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-                conv_result = supabase.table("conversations")\
-                    .select("user_id")\
-                    .eq("id", conversation_id)\
-                    .execute()
-                
-                if not conv_result.data or conv_result.data[0]["user_id"] != self.current_user["email"]:
-                    return [], conversation_id, gr.update(), "Can only delete your own conversations"
+        # Determine which user's conversation to delete
+        if target_user_email and self.is_admin_or_spoc():
+            user_email = target_user_email
             
-            success = chat_service.delete_conversation(conversation_id, self.current_user["email"])
+            # For SPOC, verify access
+            if self.is_spoc():
+                from user_management import user_management
+                assigned_users = user_management.get_spoc_assignments(self.current_user["email"])
+                if target_user_email not in assigned_users:
+                    return [], conversation_id, gr.update(), "Access denied to this user's chats"
+        else:
+            user_email = self.current_user["email"]
+        
+        try:
+            # Verify the conversation belongs to the target user
+            supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+            conv_result = supabase.table("conversations")\
+                .select("user_id")\
+                .eq("id", conversation_id)\
+                .execute()
+            
+            if not conv_result.data or conv_result.data[0]["user_id"] != user_email:
+                return [], conversation_id, gr.update(), f"Conversation doesn't belong to {user_email}"
+            
+            # Delete the conversation
+            success = chat_service.delete_conversation(conversation_id, user_email)
             
             if success:
                 if self.current_conversation_id == conversation_id:
                     self.current_conversation_id = None
                 
-                conversations = chat_service.get_user_conversations(self.current_user["email"])
+                # Get updated conversations for the target user
+                conversations = chat_service.get_user_conversations(user_email)
                 session_choices = [(conv["title"], conv["id"]) for conv in conversations]
                 sessions_update = gr.update(choices=session_choices, value=None)
                 
-                return [], None, sessions_update, "Conversation deleted"
+                return [], None, sessions_update, f"Conversation deleted for {user_email}"
             else:
                 return [], conversation_id, gr.update(), "Failed to delete conversation"
                 
