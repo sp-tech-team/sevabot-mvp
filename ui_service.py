@@ -138,6 +138,10 @@ class EnhancedUIService:
             ]
             return error_history, "", conversation_id, gr.update(), "Please log in to continue", gr.update(interactive=True), gr.update(visible=False), None
         
+        # Initialize response variable
+        response = ""
+        assistant_msg_id = None
+        
         # Determine which user this message is for
         if target_user_email and self.is_admin_or_spoc():
             user_email = target_user_email
@@ -209,11 +213,13 @@ class EnhancedUIService:
             
         except Exception as e:
             error_msg = f"Error: {str(e)}"
+            # Use the response variable if it was assigned, otherwise use error message
+            assistant_content = response if response else error_msg
             error_history = (history or []) + [
                 {"role": "user", "content": message},
-                {"role": "assistant", "content": error_msg}
+                {"role": "assistant", "content": assistant_content}
             ]
-            return error_history, "", conversation_id, gr.update(), error_msg, gr.update(interactive=True), gr.update(visible=False), None
+            return error_history, "", conversation_id, gr.update(), error_msg, gr.update(interactive=True), gr.update(visible=False), assistant_msg_id
 
     def load_conversation_for_user(self, conversation_id: Optional[str], target_user_email: str = None) -> Tuple[List[Dict], Optional[str], str]:
         """Load conversation history - for specific user if admin/SPOC viewing user chats"""
@@ -391,13 +397,98 @@ class EnhancedUIService:
         except Exception as e:
             return [], conversation_id, gr.update(), f"Error: {str(e)}"
     
-    def submit_feedback(self, message_id: str, feedback: str) -> bool:
-        """Submit feedback for a message"""
+    def submit_feedback_and_update_history(self, message_id: str, feedback: str, history: List[Dict]) -> List[Dict]:
+        """Submit feedback and update the specific message in history"""
         try:
-            return chat_service.update_message_feedback(message_id, feedback)
+            # Submit feedback to database
+            success = chat_service.update_message_feedback(message_id, feedback)
+            
+            if success and history:
+                # Find the message that corresponds to this message_id
+                # Get the message content from database to match
+                supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+                msg_result = supabase.table("messages")\
+                    .select("content, created_at")\
+                    .eq("id", message_id)\
+                    .eq("role", "assistant")\
+                    .execute()
+                
+                if msg_result.data:
+                    target_content = msg_result.data[0]["content"]
+                    
+                    # Find and update the matching message in history (from the end)
+                    for i in range(len(history) - 1, -1, -1):
+                        if (history[i].get("role") == "assistant" and 
+                            history[i].get("content", "").replace("\n\n*[Feedback:", "").split("]*")[0] == target_content):
+                            
+                            # Parse feedback for display
+                            if ":" in feedback:
+                                feedback_parts = feedback.split(":", 1)
+                                feedback_type = feedback_parts[0].strip().lower()
+                                remarks = feedback_parts[1].strip() if len(feedback_parts) > 1 else ""
+                            else:
+                                feedback_type = feedback.lower()
+                                remarks = ""
+                            
+                            feedback_emoji = {"fully": "✅", "partially": "⚠️", "nopes": "❌"}
+                            emoji = feedback_emoji.get(feedback_type, "")
+                            feedback_display = f"{emoji} {feedback_type.title()}"
+                            
+                            if remarks:
+                                feedback_display += f" - {remarks}"
+                            
+                            # Update the content with feedback
+                            updated_content = target_content + f"\n\n*[Feedback: {feedback_display}]*"
+                            history[i] = {"role": "assistant", "content": updated_content}
+                            break
+            
+            return history
+            
         except Exception as e:
-            print(f"Error submitting feedback: {e}")
-            return False
+            print(f"Error updating feedback in history: {e}")
+            return history
+    
+    def check_pending_feedback(self) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Check if there's a pending feedback for the current user"""
+        try:
+            if not self.is_logged_in():
+                return False, None, None
+            
+            # Get the most recent assistant message without feedback for current user
+            supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+            
+            result = supabase.table("messages")\
+                .select("id, conversation_id, content, created_at, conversations!inner(user_id, title)")\
+                .eq("role", "assistant")\
+                .eq("conversations.user_id", self.current_user["email"])\
+                .is_("feedback", "null")\
+                .order("created_at", desc=True)\
+                .limit(1)\
+                .execute()
+            
+            if result.data and len(result.data) > 0:
+                msg = result.data[0]
+                return True, msg["id"], msg["conversation_id"]
+            
+            return False, None, None
+            
+        except Exception as e:
+            print(f"Error checking pending feedback: {e}")
+            return False, None, None
+
+    def get_latest_conversation_for_user(self, user_email: str = None) -> Optional[str]:
+        """Get the latest conversation ID for a user"""
+        try:
+            target_email = user_email or self.current_user["email"]
+            conversations = chat_service.get_user_conversations(target_email)
+            
+            if conversations:
+                return conversations[0]["id"]  # Most recent conversation
+            return None
+            
+        except Exception as e:
+            print(f"Error getting latest conversation: {e}")
+            return None
     
     # ========== FILE OPERATIONS ==========
     

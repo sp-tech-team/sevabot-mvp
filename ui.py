@@ -162,13 +162,13 @@ def create_gradio_interface():
             box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
             z-index: 1000 !important;
             font-weight: 600 !important;
-            animation: fadeInOut 3s ease-in-out forwards !important;
+            animation: fadeInOut 5s ease-in-out forwards !important;  /* Changed from 3s to 5s */
         }
-        
+
         @keyframes fadeInOut {
             0% { opacity: 0; transform: translateX(100%); }
-            15% { opacity: 1; transform: translateX(0); }
-            85% { opacity: 1; transform: translateX(0); }
+            10% { opacity: 1; transform: translateX(0); }  /* Changed from 15% to 10% */
+            90% { opacity: 1; transform: translateX(0); }  /* Changed from 85% to 90% */
             100% { opacity: 0; transform: translateX(100%); }
         }
         
@@ -316,6 +316,8 @@ def create_gradio_interface():
         last_assistant_message_id = gr.State(None)
         selected_user_for_file_manager = gr.State(None)
         selected_chat_user = gr.State(None)
+        pending_feedback = gr.State(False)  # Track if feedback is pending
+        pending_feedback_message_id = gr.State(None)  # Track which message needs feedback
 
         # Header with user greeting
         with gr.Row():
@@ -356,13 +358,7 @@ def create_gradio_interface():
                             delete_chat_btn = gr.Button("🗑️ Delete", variant="secondary")
                             refresh_chat_btn = gr.Button("🔄 Refresh", variant="secondary")
                         
-                        sessions_radio = gr.Radio(
-                            label="Conversations",
-                            choices=[],
-                            value=None,
-                            interactive=True,
-                            show_label=False
-                        )
+                        sessions_radio = gr.Radio(label="Conversations", choices=[], value=None, interactive=True, show_label=False)
                     
                     # Main content area
                     with gr.Column(scale=4):
@@ -1198,13 +1194,64 @@ def create_gradio_interface():
             
             return new_history, empty_msg, new_conv_id, sessions_update, status, gr.update(interactive=False), gr.update(visible=True), assistant_msg_id
         
-        message_input.submit(fn=lambda msg, hist, conv_id, target_user: ui_service.send_message_for_user(msg, hist, conv_id, target_user), inputs=[message_input, chatbot, current_conversation_id, selected_chat_user], outputs=[chatbot, message_input, current_conversation_id, sessions_radio, action_status, message_input, feedback_row, last_assistant_message_id])
-        send_btn.click(fn=lambda msg, hist, conv_id, target_user: ui_service.send_message_for_user(msg, hist, conv_id, target_user), inputs=[message_input, chatbot, current_conversation_id, selected_chat_user], outputs=[chatbot, message_input, current_conversation_id, sessions_radio, action_status, message_input, feedback_row, last_assistant_message_id])
+        def send_message_with_radio_disable(message, history, conversation_id, target_user):
+            result = ui_service.send_message_for_user(message, history, conversation_id, target_user)
+            return result + (gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False))
 
+        message_input.submit(fn=send_message_with_radio_disable, inputs=[message_input, chatbot, current_conversation_id, selected_chat_user], outputs=[chatbot, message_input, current_conversation_id, sessions_radio, action_status, message_input, feedback_row, last_assistant_message_id, pending_feedback, sessions_radio, new_chat_btn])
+        send_btn.click(fn=send_message_with_radio_disable, inputs=[message_input, chatbot, current_conversation_id, selected_chat_user], outputs=[chatbot, message_input, current_conversation_id, sessions_radio, action_status, message_input, feedback_row, last_assistant_message_id, pending_feedback, sessions_radio, new_chat_btn])
+
+        #Navigation blocking functions
+        def show_feedback_warning(action_name):
+            """Show warning notification for pending feedback"""
+            warning_message = f'<div class="notification">⚠️ Please provide feedback for the previous response before {action_name}</div>'
+            return gr.update(value=warning_message, visible=True)
+        
+        def safe_new_chat(target_user, pending_feedback_state):
+            """Create new chat only if no feedback is pending"""
+            if pending_feedback_state:
+                notification = show_feedback_warning("creating a new chat")
+                # Keep showing current conversation with pending feedback
+                conversations = chat_service.get_user_conversations(ui_service.current_user["email"])
+                if conversations:
+                    has_pending, pending_msg_id, pending_conv_id = ui_service.check_pending_feedback()
+                    if has_pending and pending_conv_id:
+                        history, conv_id, _ = ui_service.load_conversation_for_user(pending_conv_id, None)
+                        return history, conv_id, gr.update(), "Please provide feedback first", True, notification, gr.update(interactive=False)
+                
+                return [], None, gr.update(), "Please provide feedback first", pending_feedback_state, notification, gr.update(interactive=False)
+            
+            result = ui_service.create_new_chat_for_user(target_user)
+            empty_notification = gr.update(value="", visible=False)
+            return result + (False, empty_notification, gr.update(interactive=True))
+        
+        def safe_load_conversation(conversation_id, target_user, pending_feedback_state, current_conv_id):
+            """Load conversation only if no feedback is pending"""
+            if pending_feedback_state:
+                notification = show_feedback_warning("switching conversations")
+                # Return current conversation ID to prevent switching
+                return [], current_conv_id, "Please provide feedback first", notification
+            
+            result = ui_service.load_conversation_for_user(conversation_id, target_user)
+            empty_notification = gr.update(value="", visible=False)
+            return result + (empty_notification,)
+
+        def safe_delete_conversation(conversation_id, target_user, pending_feedback_state):
+            """Delete conversation only if no feedback is pending"""
+            if pending_feedback_state:
+                notification = show_feedback_warning("deleting conversations")
+                return [], conversation_id, gr.update(), "Please provide feedback first", notification
+            
+            result = ui_service.delete_conversation_for_user(conversation_id, target_user)
+            empty_notification = gr.update(value="", visible=False)
+            return result + (empty_notification,)
+        
         # Session management
-        new_chat_btn.click(fn=lambda target_user: ui_service.create_new_chat_for_user(target_user), inputs=[selected_chat_user], outputs=[chatbot, current_conversation_id, sessions_radio, action_status])
-        sessions_radio.change(fn=lambda conv_id, target_user: ui_service.load_conversation_for_user(conv_id, target_user), inputs=[sessions_radio, selected_chat_user], outputs=[chatbot, current_conversation_id, action_status])
-        delete_chat_btn.click(fn=lambda conv_id, target_user: ui_service.delete_conversation_for_user(conv_id, target_user), inputs=[sessions_radio, selected_chat_user], outputs=[chatbot, current_conversation_id, sessions_radio, action_status])
+        # Update the new chat button binding to disable the button itself
+        new_chat_btn.click(fn=safe_new_chat, inputs=[selected_chat_user, pending_feedback], outputs=[chatbot, current_conversation_id, sessions_radio, action_status, pending_feedback, file_notification, new_chat_btn])
+        delete_chat_btn.click(fn=safe_delete_conversation, inputs=[sessions_radio, selected_chat_user, pending_feedback], outputs=[chatbot, current_conversation_id, sessions_radio, action_status, file_notification])
+
+        sessions_radio.change(fn=safe_load_conversation, inputs=[sessions_radio, selected_chat_user, pending_feedback, current_conversation_id], outputs=[chatbot, current_conversation_id, action_status, file_notification])
 
         # ========== FILE MANAGEMENT EVENT BINDINGS ==========
         
@@ -1426,48 +1473,57 @@ def create_gradio_interface():
         refresh_users_btn.click(fn=refresh_users_handler, outputs=[role_management_dropdown, spoc_email_dropdown, user_email_dropdown, current_spoc_dropdown, file_notification])
         
         # Feedback handlers
-        def handle_feedback(feedback_type, message_id, remarks, history):
+        def handle_feedback_with_state_clear(feedback_type, message_id, remarks, history):
+            """Handle feedback and clear pending state"""
             if not message_id:
-                return gr.update(interactive=True), gr.update(visible=False), history, "", gr.update(visible=False)
+                return gr.update(interactive=True), gr.update(visible=False), history, "", gr.update(visible=False), False, gr.update(value="", visible=False), gr.update(interactive=True), gr.update(interactive=True)
                 
             if feedback_type in ["partially", "nopes"] and (not remarks or not remarks.strip()):
                 warning_msg = f"Warning: Please provide feedback remarks for '{feedback_type.title()}' rating."
-                return gr.update(interactive=True), gr.update(visible=True), history, "", gr.update(value=warning_msg, visible=True)
+                return gr.update(interactive=True), gr.update(visible=True), history, "", gr.update(value=warning_msg, visible=True), True, gr.update(value="", visible=False), gr.update(interactive=False), gr.update(interactive=False)
             
             try:
                 feedback_data = feedback_type
                 if remarks and remarks.strip():
                     feedback_data = f"{feedback_type}:{remarks.strip()}"
                 
-                ui_service.submit_feedback(message_id, feedback_data)
+                updated_history = ui_service.submit_feedback_and_update_history(message_id, feedback_data, history)
                 
-                for i in range(len(history) - 1, -1, -1):
-                    if history[i].get("role") == "assistant":
-                        feedback_emoji = {"fully": "✅", "partially": "⚠️", "nopes": "❌"}[feedback_type]
-                        feedback_display = f"{feedback_emoji} {feedback_type.title()}"
-                        if remarks and remarks.strip():
-                            feedback_display += f" - {remarks.strip()}"
-                        
-                        updated_content = history[i]["content"] + f"\n\n*[Feedback: {feedback_display}]*"
-                        history[i] = {"role": "assistant", "content": updated_content}
-                        break
-                
-                return gr.update(interactive=True), gr.update(visible=False), history, "", gr.update(visible=False)
-        
+                success_notification = '<div class="notification">✅ Feedback submitted successfully</div>'
+                return gr.update(interactive=True), gr.update(visible=False), updated_history, "", gr.update(visible=False), False, gr.update(value=success_notification, visible=True), gr.update(interactive=True), gr.update(interactive=True)
+            
             except Exception as e:
                 error_msg = f"Error: Failed to submit feedback: {str(e)}"
-                return gr.update(interactive=True), gr.update(visible=True), history, "", gr.update(value=error_msg, visible=True)
+                return gr.update(interactive=True), gr.update(visible=True), history, "", gr.update(value=error_msg, visible=True), True, gr.update(value="", visible=False), gr.update(interactive=False), gr.update(interactive=False)
 
         for feedback_btn, feedback_type in [(feedback_fully, "fully"), (feedback_partially, "partially"), (feedback_nopes, "nopes")]:
-            feedback_btn.click(
-                fn=lambda msg_id, remarks, hist, ftype=feedback_type: handle_feedback(ftype, msg_id, remarks, hist),
-                inputs=[last_assistant_message_id, feedback_remarks, chatbot],
-                outputs=[message_input, feedback_row, chatbot, feedback_remarks, feedback_warning]
-            )
+            feedback_btn.click(fn=lambda msg_id, remarks, hist, ftype=feedback_type: handle_feedback_with_state_clear(ftype, msg_id, remarks, hist), inputs=[last_assistant_message_id, feedback_remarks, chatbot], outputs=[message_input, feedback_row, chatbot, feedback_remarks, feedback_warning, pending_feedback, file_notification, sessions_radio, new_chat_btn])
+        
+        def auto_load_latest_or_pending_feedback():
+            try:
+                conversations = chat_service.get_user_conversations(ui_service.current_user["email"])
+                session_choices = [(conv["title"], conv["id"]) for conv in conversations]
+                
+                if conversations:
+                    latest_conv_id = conversations[0]["id"]
+                    history, conv_id, _ = ui_service.load_conversation_for_user(latest_conv_id, None)
+                    return history, conv_id, gr.update(choices=session_choices, value=conv_id), "", False, None, gr.update(visible=False), gr.update(interactive=True)
+                
+                return [], None, gr.update(choices=session_choices, value=None), "", False, None, gr.update(visible=False), gr.update(interactive=True)
+                
+            except Exception as e:
+                return [], None, gr.update(choices=[], value=None), "", False, None, gr.update(visible=False), gr.update(interactive=True)
+
+        def show_feedback_warning(action_name):
+            """Show warning notification for pending feedback"""
+            warning_message = f'<div class="notification">⚠️ Please provide feedback for the previous response before {action_name}</div>'
+            return gr.update(value=warning_message, visible=True)
         
         # Logout
         logout_btn.click(fn=lambda: None, js="() => { window.location.href = '/logout'; }")
     
+        demo.load(fn=auto_load_latest_or_pending_feedback, outputs=[chatbot, current_conversation_id, sessions_radio, action_status, pending_feedback, pending_feedback_message_id, feedback_row, sessions_radio])
+
     return demo
 
 def create_ui(app: FastAPI):
