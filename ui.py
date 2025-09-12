@@ -449,7 +449,7 @@ def create_gradio_interface():
                     gr.Markdown("<br>")
                 
                     # Personal Documents Section
-                    with gr.Column():
+                    with gr.Column(visible=False):
                         gr.Markdown("### 👤 Personal Documents")
                         gr.Markdown("*Your personal document uploads*")
                         
