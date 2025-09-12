@@ -602,43 +602,51 @@ class EnhancedFileService:
             messages.append(f"⚠️ Indexing error: {file_name} - {str(index_error)}")
             return 0
     
-    def _create_common_knowledge_file_row(self, file_path: Path) -> Optional[List[Any]]:
-        """Create file row for common knowledge files with real uploader names"""
+    def _create_common_knowledge_file_row(self, file_path: Path) -> Optional[list]:
+        """Create a row for common knowledge files with Actions column containing clickable links"""
         try:
             from rag_service import rag_service
-            
+
+            # File info
             stat = file_path.stat()
             file_size = stat.st_size
-            
             chunks_count = rag_service.get_file_chunks_count(file_path.name, is_common=True)
             status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
             upload_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
-            
-            # Get real uploader name
+
+            # Actions column
+            file_url = f"/docs/{file_path.name}"
+            actions = (
+                f'<a href="{file_url}" target="_blank">👁 View</a> &nbsp;|&nbsp; '
+                f'<a href="{file_url}" download>💾 Download</a>'
+            )
+
+            # Uploader name
             uploader_name = "System"
             try:
                 if IS_PRODUCTION:
-                    result = self.supabase.table("common_knowledge_documents")\
-                        .select("uploaded_by")\
-                        .eq("file_name", file_path.name)\
+                    result = self.supabase.table("common_knowledge_documents") \
+                        .select("uploaded_by") \
+                        .eq("file_name", file_path.name) \
                         .execute()
-                    
+
                     if result.data and result.data[0].get("uploaded_by"):
                         uploader_email = result.data[0]["uploaded_by"]
-                        uploader_name = self.get_user_display_name(uploader_email)  # Use actual name
+                        uploader_name = self.get_user_display_name(uploader_email)
             except Exception as e:
                 print(f"Error getting uploader info: {e}")
-            
+
+            # Return row with all non-HTML columns as str
             return [
-                file_path.name,
-                self.format_file_size(file_size),
-                self.get_file_type(file_path),
-                chunks_count,
-                status,
-                upload_date,
-                uploader_name
+                str(file_path.name),
+                actions,
+                str(self.format_file_size(file_size)),
+                str(self.get_file_type(file_path)),
+                str(upload_date),
+                str(uploader_name),
+                str(status)
             ]
-            
+
         except Exception as e:
             print(f"Error reading local file {file_path}: {e}")
             return None

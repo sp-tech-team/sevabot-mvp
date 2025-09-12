@@ -1,9 +1,11 @@
 # main.py - FastAPI application with RAG endpoints
 import warnings
+import os
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -32,6 +34,7 @@ except Exception as e:
 # API router for health checks and basic endpoints
 api_router = APIRouter(tags=["API"])
 
+
 @api_router.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -41,6 +44,7 @@ async def health_check():
         "version": "2.0.0"
     }
 
+
 @api_router.get("/api/user-stats/{user_email}")
 async def get_user_stats(user_email: str):
     """Get user statistics"""
@@ -48,7 +52,7 @@ async def get_user_stats(user_email: str):
         conversations = chat_service.get_user_conversations(user_email)
         files = file_service.list_user_files(user_email)
         doc_count = rag_service.get_user_document_count(user_email)
-        
+
         return {
             "conversations_count": len(conversations),
             "files_count": len(files),
@@ -57,6 +61,7 @@ async def get_user_stats(user_email: str):
         }
     except Exception as e:
         return {"error": str(e)}
+
 
 # FastAPI app
 app = FastAPI(
@@ -82,6 +87,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount common knowledge files as static
+common_docs_path = os.getenv("COMMON_KNOWLEDGE_PATH", "/app/common_knowledge")
+app.mount(
+    "/docs",
+    StaticFiles(directory=common_docs_path),
+    name="docs"
+)
+
 # Include routers
 app.include_router(auth_router, tags=["Authentication"])
 app.include_router(api_router)
@@ -95,20 +108,23 @@ create_ui(app)
 async def root():
     return RedirectResponse(url="/chat")
 
+
 @app.on_event("startup")
 async def startup_event():
     print("🚀 Starting SEVABOT RAG Assistant...")
     print("✅ Multi-user file management ready")
-    print("✅ ChromaDB vector stores initialized") 
+    print("✅ ChromaDB vector stores initialized")
     print("✅ Conversation management ready")
     print("✅ Authentication system ready")
     print("✅ Vector database cleanup endpoints ready")
     print("🌐 Application ready for traffic")
 
+
 @app.on_event("shutdown")
 async def shutdown_event():
     print("🛑 Shutting down SEVABOT RAG Assistant...")
     print("✅ Shutdown complete")
+
 
 if __name__ == "__main__":
     uvicorn.run(

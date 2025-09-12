@@ -437,14 +437,16 @@ def create_gradio_interface():
                     
                     common_files_table = gr.Dataframe(
                         label="",
-                        headers=["File Name", "Size", "Type", "Uploaded", "Source"],  # Matches file manager after filtering
-                        datatype=["str", "str", "str", "str", "str"],
+                        headers=["File Name", "Actions", "Size", "Type", "Uploaded", "Source", "Status"],
+                        datatype=["str", "html", "str", "str", "str", "str", "str"],  # only Actions is HTML
                         interactive=False,
                         wrap=True,
                         value=[],
                         row_count=(10, "dynamic"),
-                        column_widths=["56%", "6%", "10%", "8%", "20%"]
+                        column_widths=["25%", "20%", "8%", "10%", "12%", "15%", "10%"]  # sums to 100%
                     )
+
+                        # column_widths=["36%", "9%", "6%", "10%", "8%", "15%", "5%"]
 
                     gr.Markdown("<br>")
                 
