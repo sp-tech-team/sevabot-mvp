@@ -89,7 +89,20 @@ ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE common_knowledge_documents ENABLE ROW LEVEL SECURITY;
 
--- Allow service role to bypass RLS
+-- Drop existing policies first (ignore errors if they don't exist)
+DO $$ 
+BEGIN
+    DROP POLICY IF EXISTS "Service role can do everything" ON email_whitelist;
+    DROP POLICY IF EXISTS "Service role can do everything" ON users;
+    DROP POLICY IF EXISTS "Service role can do everything" ON spoc_assignments;
+    DROP POLICY IF EXISTS "Service role can do everything" ON conversations;
+    DROP POLICY IF EXISTS "Service role can do everything" ON messages;
+    DROP POLICY IF EXISTS "Service role can do everything" ON common_knowledge_documents;
+EXCEPTION WHEN OTHERS THEN
+    NULL; -- Ignore any errors
+END $$;
+
+-- Create policies
 CREATE POLICY "Service role can do everything" ON email_whitelist FOR ALL USING (true);
 CREATE POLICY "Service role can do everything" ON users FOR ALL USING (true);
 CREATE POLICY "Service role can do everything" ON spoc_assignments FOR ALL USING (true);

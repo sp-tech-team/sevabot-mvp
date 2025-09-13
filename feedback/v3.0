@@ -1,0 +1,31 @@
+admin chat:
+1) ✅ when user chats are selected, when i click on new chat, it redirects to the logged in user chat and not the user chat. 
+2) ✅ when a message is dropped in a user chat, it puts the message but again shows my chat
+3) ✅  when feedback is not given, new chat/sesions/text box input are disabled
+
+files:
+1) ✅ it shows files refreshed with files, but doesn't populate the table - both for admins and handle_user_file_search
+2) ✅ should show common + personal files, if any.
+
+file manager (common):
+✅ perfect!
+
+file manager (users):
+✅ chunks status shows 0 for a selected users, and status as available instead of indexed.
+
+rag:
+1) for rag, when selected for a user, it should refer to the common knowledge and respective user's rag db for answering.
+
+users:
+1) when a user is added, spoc assignment should be mandatory
+2) promote or demote user should be renamed to add spoc, remove spoc
+3) when spocs are removed, users should be in an orphaned bucket.
+4) when there are no spocs, when a new user gets onboard other than admin, he will be spoc by default.
+5) reduce whitelisted emails to top k entries scrollable table
+6) make deletion table separate. 
+7) when spoc assignment is removed, it should be mandatory to assign it to a different spoc
+8) there shouldn't be spoc assignment feature as users are mandatorily assigned to spoc anyways.
+
+code optimisation: 
+1) move styling code to styles.py
+2) user management.py is lying redundant as it's code is written in ui.py towards the end

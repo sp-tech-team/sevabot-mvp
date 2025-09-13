@@ -165,6 +165,20 @@ def create_gradio_interface():
             animation: fadeInOut 5s ease-in-out forwards !important;  /* Changed from 3s to 5s */
         }
 
+        .file-error-notification {
+            position: fixed !important;
+            top: 20px !important;
+            right: 20px !important;
+            background: #ef4444 !important;
+            color: white !important;
+            padding: 12px 20px !important;
+            border-radius: 8px !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+            z-index: 1000 !important;
+            font-weight: 600 !important;
+            animation: fadeInOut 3.5s ease-in-out forwards !important;
+        }
+
         @keyframes fadeInOut {
             0% { opacity: 0; transform: translateX(100%); }
             10% { opacity: 1; transform: translateX(0); }  /* Changed from 15% to 10% */
@@ -437,16 +451,16 @@ def create_gradio_interface():
                     
                     common_files_table = gr.Dataframe(
                         label="",
-                        headers=["File Name", "Actions", "Size", "Type", "Uploaded", "Source", "Status"],
-                        datatype=["str", "html", "str", "str", "str", "str", "str"],  # only Actions is HTML
+                        headers=["File Name", "Size", "Type", "Uploaded", "Source", "Actions"],
+                        datatype=["str", "str", "str", "str", "str", "html"],
                         interactive=False,
                         wrap=True,
-                        value=[],
+                        value=[[""] * 6],  # Reduced to 6 columns
                         row_count=(10, "dynamic"),
-                        column_widths=["25%", "20%", "8%", "10%", "12%", "15%", "10%"]  # sums to 100%
+                        column_widths=["55%", "6%", "8%", "7%", "12%", "12%"]  # File Name gets 55%
                     )
 
-                        # column_widths=["36%", "9%", "6%", "10%", "8%", "15%", "5%"]
+                        # column_widths=["36%", 9%, "6%", "10%", "8%", "15%", "5%"]
 
                     gr.Markdown("<br>")
                 
@@ -466,13 +480,13 @@ def create_gradio_interface():
                         
                         personal_files_table = gr.Dataframe(
                             label="",
-                            headers=["File Name", "Size", "Type", "Uploaded", "Source"],   # Matches user file manager after filtering
-                            datatype=["str", "str", "str", "str", "str"],
+                            headers=["File Name", "Size", "Type", "Uploaded", "Source", "Actions"],
+                            datatype=["str", "str", "str", "str", "str", "html"],
                             interactive=False,
                             wrap=True,
                             value=[],
                             row_count=(10, "dynamic"),
-                            column_widths=["56%", "6%", "10%", "8%", "20%"]
+                            column_widths=["55%", "6%", "8%", "7%", "12%", "12%"]  # Same widths for consistency
                         )
             
             # File Manager (Common) Tab
@@ -527,12 +541,12 @@ def create_gradio_interface():
                     
                     files_table = gr.Dataframe(
                         label="",
-                        headers=["File Name", "Size", "Type", "Chunks", "Status", "Uploaded", "Source"],  # Changed "Uploaded By" to "Source"
-                        datatype=["str", "str", "str", "number", "str", "str", "str"],
+                        headers=["File Name", "Size", "Type", "Chunks", "Status", "Uploaded", "Source", "Actions"],
+                        datatype=["str", "str", "str", "number", "str", "str", "str", "html"],
                         interactive=False,
                         wrap=True,
                         row_count=(10, "dynamic"),
-                        column_widths=["50%", "6%", "10%", "5%", "8%", "8%", "13%"]
+                        column_widths=["44%", "6%", "8%", "4%", "7%", "7%", "12%", "12%"]
                     )
                     
                     # Status displays
@@ -604,12 +618,12 @@ def create_gradio_interface():
                     # User Files Table
                     user_files_table = gr.Dataframe(
                         label="User Documents",
-                        headers=["File Name", "Size", "Type", "Chunks", "Status", "Uploaded", "User"],
-                        datatype=["str", "str", "str", "number", "str", "str", "str"],
+                        headers=["File Name", "Size", "Type", "Chunks", "Status", "Uploaded", "User", "Actions"],
+                        datatype=["str", "str", "str", "number", "str", "str", "str", "html"],
                         interactive=False,
                         wrap=True,
                         row_count=(10, "dynamic"),
-                        column_widths=["50%", "6%", "10%", "5%", "8%", "8%", "13%"]
+                        column_widths=["44%", "6%", "8%", "4%", "7%", "7%", "12%", "12%"]
                     )
                     
                     # Status displays

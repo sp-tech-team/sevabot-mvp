@@ -493,13 +493,18 @@ class EnhancedUIService:
     # ========== FILE OPERATIONS ==========
     
     def _filter_file_columns(self, files: List[List[Any]], is_personal: bool = False) -> List[List[Any]]:
-        """Filter file data - keep all columns for personal files now"""
+        """Filter file data for Files tab display - remove Status column"""
         try:
             filtered_files = []
             for file_row in files:
-                if len(file_row) >= 7:
-                    # For both common and personal: [Name, Size, Type, Uploaded, Source] (remove chunks[3], status[4])
-                    filtered_row = [file_row[0], file_row[1], file_row[2], file_row[5], file_row[6]]
+                if len(file_row) >= 8:  # All files have 8 columns with actions
+                    if is_personal:
+                        # Personal files: [Name, Size, Type, Uploaded, Source, Actions] - skip Status
+                        filtered_row = [file_row[0], file_row[1], file_row[2], file_row[5], file_row[6], file_row[7]]
+                    else:
+                        # Common files: [Name, Size, Type, Uploaded, Source, Actions] - skip Status
+                        filtered_row = [file_row[0], file_row[1], file_row[2], file_row[5], file_row[6], file_row[7]]
+                    
                     filtered_files.append(filtered_row)
             return filtered_files
         except Exception as e:

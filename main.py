@@ -95,6 +95,13 @@ app.mount(
     name="docs"
 )
 
+user_docs_path = os.getenv("RAG_DOCUMENTS_PATH", "./user_documents")
+app.mount(
+    "/user_docs",
+    StaticFiles(directory=user_docs_path),
+    name="user_docs"
+)
+
 # Include routers
 app.include_router(auth_router, tags=["Authentication"])
 app.include_router(api_router)

@@ -603,7 +603,7 @@ class EnhancedFileService:
             return 0
     
     def _create_common_knowledge_file_row(self, file_path: Path) -> Optional[list]:
-        """Create a row for common knowledge files with Actions column containing clickable links"""
+        """Create a row for common knowledge files with Actions as last column"""
         try:
             from rag_service import rag_service
 
@@ -614,11 +614,12 @@ class EnhancedFileService:
             status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
             upload_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
 
-            # Actions column
+            # Actions column with styling
             file_url = f"/docs/{file_path.name}"
             actions = (
-                f'<a href="{file_url}" target="_blank">👁 View</a> &nbsp;|&nbsp; '
-                f'<a href="{file_url}" download>💾 Download</a>'
+                f'<a href="{file_url}" target="_blank" style="color: #3b82f6; text-decoration: none; font-weight: 500;">👁 View</a> '
+                f'<span style="color: #6b7280;">|</span> '
+                f'<a href="{file_url}" download style="color: #059669; text-decoration: none; font-weight: 500;">💾 Download</a>'
             )
 
             # Uploader name
@@ -636,15 +637,16 @@ class EnhancedFileService:
             except Exception as e:
                 print(f"Error getting uploader info: {e}")
 
-            # Return row with all non-HTML columns as str
+            # Return row with Actions as LAST column
             return [
                 str(file_path.name),
-                actions,
                 str(self.format_file_size(file_size)),
                 str(self.get_file_type(file_path)),
+                str(chunks_count),
+                str(status),
                 str(upload_date),
                 str(uploader_name),
-                str(status)
+                actions  # Actions moved to last
             ]
 
         except Exception as e:
@@ -652,7 +654,7 @@ class EnhancedFileService:
             return None
     
     def _create_user_file_row(self, file_path: Path, user_email: str) -> Optional[List[Any]]:
-        """Create file row for user files with actual user name"""
+        """Create file row for user files with actions"""
         try:
             from rag_service import rag_service
             
@@ -674,6 +676,15 @@ class EnhancedFileService:
             # Get actual user display name
             user_display = self.get_user_display_name(user_email)
             
+            # Add actions for user files
+            user_dir = user_email.replace("@", "_").replace(".", "_")
+            file_url = f"/user_docs/{user_dir}/{file_path.name}"
+            actions = (
+                f'<a href="{file_url}" target="_blank" style="color: #3b82f6; text-decoration: none; font-weight: 500;">👁 View</a> '
+                f'<span style="color: #6b7280;">|</span> '
+                f'<a href="{file_url}" download style="color: #059669; text-decoration: none; font-weight: 500;">💾 Download</a>'
+            )
+            
             return [
                 file_path.name,
                 self.format_file_size(file_size),
@@ -681,7 +692,8 @@ class EnhancedFileService:
                 chunks_count,
                 status,
                 upload_date,
-                user_display  # Actual user name
+                user_display,
+                actions  # Actions as last column
             ]
             
         except Exception as e:
@@ -689,7 +701,7 @@ class EnhancedFileService:
             return None
         
     def _get_cloud_common_knowledge_files(self, local_files: List[List[Any]], search_term: str) -> List[List[Any]]:
-        """Get cloud files with real uploader names"""
+        """Get cloud files with actions as last column"""
         cloud_files = []
         try:
             result = self.supabase.table("common_knowledge_documents")\
@@ -711,6 +723,14 @@ class EnhancedFileService:
                     uploader_email = file_info.get("uploaded_by", "system")
                     uploader_name = uploader_email.split('@')[0].replace('.', ' ').title() if '@' in uploader_email else "System"
                     
+                    # Actions with styling
+                    file_url = f"/docs/{file_info['file_name']}"
+                    actions = (
+                        f'<a href="{file_url}" target="_blank" style="color: #3b82f6; text-decoration: none; font-weight: 500;">👁 View</a> '
+                        f'<span style="color: #6b7280;">|</span> '
+                        f'<a href="{file_url}" download style="color: #059669; text-decoration: none; font-weight: 500;">💾 Download</a>'
+                    )
+                    
                     file_row = [
                         file_info["file_name"],
                         self.format_file_size(file_info["file_size"]),
@@ -718,7 +738,8 @@ class EnhancedFileService:
                         chunks_count,
                         status,
                         file_info["uploaded_at"][:10],
-                        uploader_name  # Real uploader name
+                        uploader_name,
+                        actions  # Actions as last column
                     ]
                     
                     if self._matches_search(file_row, search_term):

@@ -19,3 +19,72 @@ feedback after deployment:
 
 future:
 1) caching for loading already asked questions for saving time/memory/RAM
+
+/app/ui.py:311: UserWarning: You have not specified a value for the `type` parameter. Defaulting to the 'tuples' format for chatbot messages, but this is deprecated and will be removed in a future version of Gradio. Please set type='messages' instead, which uses openai-style dictionaries with 'role' and 'content' keys.
+  chatbot = gr.Chatbot(
+/usr/local/lib/python3.11/site-packages/gradio/utils.py:1052: UserWarning: Expected 2 arguments for function <function create_gradio_interface.<locals>.handle_user_file_search at 0x76f066624360>, received 1.
+  warnings.warn(
+/usr/local/lib/python3.11/site-packages/gradio/utils.py:1056: UserWarning: Expected at least 2 arguments for function <function create_gradio_interface.<locals>.handle_user_file_search at 0x76f066624360>, received 1.
+  warnings.warn(
+
+    /usr/local/lib/python3.11/site-packages/gradio/components/dropdown.py:230: UserWarning: The value passed into gr.Dropdown() is not in the list of choices. Please update the list of choices to include: swapnil.padhi-ext@sadhguru.org or set allow_custom_value=True.
+  warnings.warn(
+INFO:     172.17.0.1:55396 - "GET /gradio/gradio_api/queue/data?session_hash=m04hfikp1r HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45708 - "GET /health HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55408 - "GET /gradio/assets/Index-BXaDjiyS.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55418 - "GET /gradio/assets/Index-B8k0osbz.css HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55430 - "GET /gradio/assets/Example-CXKuTmQ6.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55442 - "GET /gradio/assets/index-tFQomdd2.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55452 - "GET /gradio/assets/ModifyUpload-DbxlaTpK.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55458 - "GET /gradio/assets/dsv-DB8NKgIY.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55472 - "GET /gradio/assets/Index-mHjjnm4_.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55488 - "GET /gradio/assets/ModifyUpload-REHVxGq-.css HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55496 - "GET /gradio/assets/Index-Cv2bC0-H.css HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55504 - "GET /gradio/assets/Example-D1sBsWPM.css HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55518 - "GET /gradio/assets/Index-Dko6XNbv.css HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55524 - "GET /gradio/assets/Example-qYVyHUA1.css HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55526 - "GET /gradio/assets/Index-G0X-O4E7.css HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55534 - "GET /gradio/assets/Index-CzmXwtX8.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55536 - "GET /gradio/assets/Index-nt8UU1b9.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55550 - "GET /gradio/assets/Example-BSDQVxPB.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:55552 - "GET /gradio/assets/Example-BUnh5COx.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:40736 - "POST /gradio/gradio_api/queue/join HTTP/1.1" 200 OK
+DEBUG: Refreshing files display with 4 files
+INFO:     172.17.0.1:40744 - "GET /gradio/assets/Example-cR3xzyOo.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:40754 - "GET /gradio/assets/Index-C-vZ3ifd.css HTTP/1.1" 200 OK
+INFO:     172.17.0.1:40764 - "GET /gradio/assets/Index-DAhGG6wk.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:40768 - "GET /gradio/assets/Example-BjJvNKVN.css HTTP/1.1" 200 OK
+INFO:     172.17.0.1:40770 - "GET /gradio/gradio_api/queue/data?session_hash=m04hfikp1r HTTP/1.1" 200 OK
+INFO:     172.17.0.1:40782 - "GET /gradio/assets/Index-CFAAJvS0.js HTTP/1.1" 200 OK
+INFO:     172.17.0.1:40786 - "GET /gradio/assets/Index-BTGlV-9r.css HTTP/1.1" 200 OK
+INFO:     172.17.0.1:40800 - "POST /gradio/gradio_api/queue/join HTTP/1.1" 200 OK
+/usr/local/lib/python3.11/site-packages/gradio/helpers.py:1057: UserWarning: Unexpected argument. Filling with None.
+  warnings.warn("Unexpected argument. Filling with None.")
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/gradio/queueing.py", line 667, in process_events
+    response = await route_utils.call_process_api(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/gradio/route_utils.py", line 349, in call_process_api
+    output = await app.get_blocks().process_api(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/gradio/blocks.py", line 2284, in process_api
+    data = await self.postprocess_data(block_fn, result["prediction"], state)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/gradio/blocks.py", line 2062, in postprocess_data
+    prediction_value = block.postprocess(prediction_value)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/gradio/components/dataframe.py", line 454, in postprocess
+    data = [] if self.is_empty(value) else self.get_cell_data(value)
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/gradio/components/dataframe.py", line 392, in get_cell_data
+    raise ValueError(
+ValueError: Cannot process value of type <class 'tuple'> in gr.Dataframe
+INFO:     172.17.0.1:40806 - "GET /gradio/gradio_api/queue/data?session_hash=m04hfikp1r HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60032 - "GET /health HTTP/1.1" 200 OK
+INFO:     172.17.0.1:59374 - "POST /gradio/gradio_api/queue/join HTTP/1.1" 200 OK
+DEBUG: Refreshing files display with 4 files
+INFO:     172.17.0.1:59390 - "GET /gradio/gradio_api/queue/data?session_hash=m04hfikp1r HTTP/1.1" 200 OK
+INFO:     172.17.0.1:59400 - "POST /gradio/gradio_api/queue/join HTTP/1.1" 200 OK
+DEBUG: Refreshing files display with 4 files
+INFO:     172.17.0.1:59412 - "GET /gradio/gradio_api/queue/data?session_hash=m04hfikp1r HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42526 - "GET /health HTTP/1.1" 200 OK
