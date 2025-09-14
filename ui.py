@@ -9,321 +9,22 @@ from user_management import user_management
 from file_services import enhanced_file_service
 from chat_service import chat_service
 
+from ui_styles import (get_favicon_link, get_isha_logo_svg, get_landing_page_html, get_main_app_css)
+
 def create_landing_page_html() -> str:
     """Landing page HTML"""
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Welcome to SEVABOT</title>
-        <style>
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Open Sans', 'Helvetica Neue', sans-serif;
-                text-align: center;
-                padding: 50px;
-                background: white;
-                color: #333;
-                min-height: 100vh;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                margin: 0;
-            }
-            .login-container {
-                background: white;
-                border: 1px solid #e5e7eb;
-                border-radius: 16px;
-                box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-                padding: 3rem 2.5rem;
-                text-align: center;
-                max-width: 400px;
-                width: 90%;
-            }
-            .title {
-                font-size: 2.5rem;
-                font-weight: 700;
-                margin-bottom: 2.5rem;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                background-clip: text;
-                letter-spacing: 2px;
-            }
-            .login-button {
-                display: inline-block;
-                transition: transform 0.2s ease, box-shadow 0.2s ease;
-                border-radius: 8px;
-                overflow: hidden;
-                margin-bottom: 2rem;
-            }
-            .login-button:hover {
-                transform: translateY(-1px);
-                box-shadow: 0 6px 20px rgba(0,0,0,0.15);
-            }
-            .login-button img {
-                border-radius: 8px;
-                max-width: 200px;
-                height: auto;
-            }
-            .domain-info {
-                margin-top: 2rem;
-                padding: 1rem;
-                background: #f8f9fa;
-                border-radius: 12px;
-                font-size: 0.9rem;
-                color: #6c757d;
-                border-left: 4px solid #667eea;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="login-container">
-            <div>🙏 Namaskaram, Welcome to</div>
-            <h1 class="title">SEVABOT</h1>
-            
-            <div style="margin: 2rem 0;">
-                <a href="/login" class="login-button">
-                    <img src="https://developers.google.com/identity/images/btn_google_signin_dark_normal_web.png" 
-                         alt="Sign in with Google" />
-                </a>
-            </div>
-            
-            <div class="domain-info">
-                <strong>Access Restricted:</strong> Only whitelisted @sadhguru.org email addresses are permitted
-            </div>
-        </div>
-    </body>
-    </html>
-    """
+    return get_landing_page_html()
+
 
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
     with gr.Blocks(
         theme=gr.themes.Soft(), 
-        title="SEVABOT",
-        head="""
-        <style>
-        .gradio-container .footer { display: none !important; }
-        .gradio-container footer { display: none !important; }
-        footer[data-testid="footer"] { display: none !important; }
-        .gradio-container > div:last-child { display: none !important; }
-        </style>
-        """,
-        css="""
-        .gradio-container, .main, *, html, body, div, span, h1, h2, h3, h4, h5, h6, p, a, button, input, textarea, select, label {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Open Sans', 'Helvetica Neue', sans-serif !important;
-        }
-        
-        .sevabot-logo { 
-            font-size: 0 !important;
-            height: 60px !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: flex-start !important;
-            margin: 0 !important;
-        }
-        
-        .sevabot-logo svg {
-            width: 220px !important;
-            height: 55px !important;
-        }
-        
-        .logout-btn { 
-            background-color: #dc2626 !important; 
-            color: white !important;
-            width: auto !important;
-            min-width: 85px !important;
-            padding: 8px 16px !important;
-            font-size: 14px !important;
-        }
-        
-        .send-btn {
-            background-color: #dc2626 !important;
-            color: white !important;
-            font-weight: 500 !important;
-            min-width: 60px !important;
-            max-width: 80px !important;
-            padding: 8px 16px !important;
-            font-size: 14px !important;
-        }
-        
-        .notification {
-            position: fixed !important;
-            top: 20px !important;
-            right: 20px !important;
-            background: #10b981 !important;
-            color: white !important;
-            padding: 12px 20px !important;
-            border-radius: 8px !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-            z-index: 1000 !important;
-            font-weight: 600 !important;
-            animation: fadeInOut 5s ease-in-out forwards !important;  /* Changed from 3s to 5s */
-        }
-
-        .file-error-notification {
-            position: fixed !important;
-            top: 20px !important;
-            right: 20px !important;
-            background: #ef4444 !important;
-            color: white !important;
-            padding: 12px 20px !important;
-            border-radius: 8px !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
-            z-index: 1000 !important;
-            font-weight: 600 !important;
-            animation: fadeInOut 3.5s ease-in-out forwards !important;
-        }
-
-        @keyframes fadeInOut {
-            0% { opacity: 0; transform: translateX(100%); }
-            10% { opacity: 1; transform: translateX(0); }  /* Changed from 15% to 10% */
-            90% { opacity: 1; transform: translateX(0); }  /* Changed from 85% to 90% */
-            100% { opacity: 0; transform: translateX(100%); }
-        }
-        
-        .feedback-btn { 
-            min-height: 42px !important; 
-            padding: 10px 20px !important; 
-            font-size: 14px !important;
-            font-weight: 500 !important;
-            margin: 5px !important;
-            border: 2px solid transparent !important;
-        }
-        
-        .feedback-fully { 
-            background-color: rgba(34, 197, 94, 0.15) !important; 
-            color: #059669 !important;
-            border-color: rgba(34, 197, 94, 0.3) !important;
-        }
-        .feedback-partially { 
-            background-color: rgba(245, 158, 11, 0.15) !important; 
-            color: #d97706 !important;
-            border-color: rgba(245, 158, 11, 0.3) !important;
-        }
-        .feedback-nopes { 
-            background-color: rgba(239, 68, 68, 0.15) !important; 
-            color: #dc2626 !important;
-            border-color: rgba(239, 68, 68, 0.3) !important;
-        }
-        
-        .admin-section {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%) !important;
-            border: 1px solid rgba(102, 126, 234, 0.2) !important;
-            border-radius: 12px !important;
-            padding: 20px !important;
-            margin-bottom: 20px !important;
-        }
-        
-        .spoc-section {
-            background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(251, 191, 36, 0.1) 100%) !important;
-            border: 1px solid rgba(245, 158, 11, 0.2) !important;
-            border-radius: 12px !important;
-            padding: 20px !important;
-            margin-bottom: 20px !important;
-        }
-        
-        .copyright-footer {
-            text-align: center !important;
-            color: #9ca3af !important;
-            font-size: 0.875rem !important;
-            margin-top: 20px !important;
-            padding: 15px !important;
-        }
-        
-        .sessions-list, .chat-interface { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Open Sans', 'Helvetica Neue', sans-serif !important; }
-        .tab-nav button { font-size: 1.1em !important; font-weight: 600 !important; padding: 0.6em 1.2em !important; }
-        .gradio-container { height: 100vh !important; }
-        .main { height: calc(100vh - 80px) !important; overflow-y: auto !important; }
-        
-        .btn, .btn-primary, .btn-secondary { 
-            font-size: 14px !important;
-            padding: 8px 16px !important;
-            min-height: auto !important;
-            width: auto !important;
-        }
-        
-        .block { overflow: visible !important; }
-        .panel-wrap { overflow: visible !important; }
-        .app { overflow-y: auto !important; height: 100vh !important; }
-
-        .user-files-table .dataframe table,
-        .personal-files-table .dataframe table {
-            table-layout: fixed !important;
-            width: 100% !important;
-        }
-
-        .user-files-table .dataframe th,
-        .user-files-table .dataframe td,
-        .personal-files-table .dataframe th,
-        .personal-files-table .dataframe td {
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-            white-space: nowrap !important;
-        }
-
-        /* Force same column widths for user tables */
-        .user-files-table .dataframe th:nth-child(1),
-        .user-files-table .dataframe td:nth-child(1),
-        .personal-files-table .dataframe th:nth-child(1),
-        .personal-files-table .dataframe td:nth-child(1) {
-            width: 35% !important;
-            min-width: 200px !important;
-        }
-
-        .user-files-table .dataframe th:nth-child(2),
-        .user-files-table .dataframe td:nth-child(2),
-        .personal-files-table .dataframe th:nth-child(2),
-        .personal-files-table .dataframe td:nth-child(2) {
-            width: 12% !important;
-            min-width: 80px !important;
-        }
-
-        .user-files-table .dataframe th:nth-child(3),
-        .user-files-table .dataframe td:nth-child(3),
-        .personal-files-table .dataframe th:nth-child(3),
-        .personal-files-table .dataframe td:nth-child(3) {
-            width: 15% !important;
-            min-width: 100px !important;
-        }
-
-        .user-files-table .dataframe th:nth-child(4),
-        .user-files-table .dataframe td:nth-child(4),
-        .personal-files-table .dataframe th:nth-child(4),
-        .personal-files-table .dataframe td:nth-child(4) {
-            width: 10% !important;
-            min-width: 60px !important;
-        }
-
-        .user-files-table .dataframe th:nth-child(5),
-        .user-files-table .dataframe td:nth-child(5),
-        .personal-files-table .dataframe th:nth-child(5),
-        .personal-files-table .dataframe td:nth-child(5) {
-            width: 13% !important;
-            min-width: 90px !important;
-        }
-
-        .user-files-table .dataframe th:nth-child(6),
-        .user-files-table .dataframe td:nth-child(6),
-        .personal-files-table .dataframe th:nth-child(6),
-        .personal-files-table .dataframe td:nth-child(6) {
-            width: 12% !important;
-            min-width: 85px !important;
-        }
-
-        .user-files-table .dataframe th:nth-child(7),
-        .user-files-table .dataframe td:nth-child(7),
-        .personal-files-table .dataframe th:nth-child(7),
-        .personal-files-table .dataframe td:nth-child(7) {
-            width: 13% !important;
-            min-width: 90px !important;
-        }
-
-        """) as demo:
+        title="Isha Sevabot",
+        head=get_favicon_link(),
+        css=get_main_app_css()
+    ) as demo:
         
         # State variables
         current_conversation_id = gr.State(None)
@@ -336,24 +37,8 @@ def create_gradio_interface():
         # Header with user greeting
         with gr.Row():
             with gr.Column(scale=3):
-                sevabot_logo = gr.HTML("""
-                <div style="display: flex; align-items: center;">
-                    <svg width="240" height="55" viewBox="0 0 200 50">
-                        <defs>
-                            <linearGradient id="headerLogoGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                                <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
-                                <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
-                            </linearGradient>
-                        </defs>
-                        <circle cx="20" cy="25" r="18" fill="none" stroke="url(#headerLogoGradient)" stroke-width="1.5" opacity="0.3"/>
-                        <text x="20" y="32" font-size="18" text-anchor="middle" fill="url(#headerLogoGradient)">🙏</text>
-                        <text x="50" y="32" font-family="'Google Sans', 'Product Sans', 'Roboto', system-ui, sans-serif" font-size="20" font-weight="600" fill="url(#headerLogoGradient)" letter-spacing="1.8px">SEVABOT</text>
-                        <circle cx="160" cy="20" r="2.5" fill="url(#headerLogoGradient)" opacity="0.8"/>
-                        <circle cx="170" cy="25" r="2" fill="url(#headerLogoGradient)" opacity="0.6"/>
-                        <circle cx="178" cy="30" r="1.8" fill="url(#headerLogoGradient)" opacity="0.7"/>
-                    </svg>
-                </div>
-                """, elem_classes="sevabot-logo")
+                sevabot_logo = gr.HTML(get_isha_logo_svg(), elem_classes="sevabot-logo")
+
             with gr.Column(scale=1):
                 with gr.Row():
                     namaskaram_user = gr.Button("", variant="secondary", interactive=False, scale=4)
@@ -368,12 +53,12 @@ def create_gradio_interface():
                     with gr.Column(scale=1, min_width=250):
                         gr.Markdown("### Chat Sessions")
                         with gr.Row():
-                            new_chat_btn = gr.Button("🆕 New", variant="primary")
-                            delete_chat_btn = gr.Button("🗑️ Delete", variant="secondary")
-                            refresh_chat_btn = gr.Button("🔄 Refresh", variant="secondary")
-                        
+                            with gr.Row():
+                                new_chat_btn = gr.Button("➕", variant="primary", min_width=60, elem_classes="new-chat-btn")
+                                delete_chat_btn = gr.Button("🗑️", variant="secondary", min_width=60, elem_classes="delete-chat-btn")
+                                refresh_chat_btn = gr.Button("🔄", variant="secondary", min_width=60, elem_classes="refresh-chat-btn")
                         sessions_radio = gr.Radio(label="Conversations", choices=[], value=None, interactive=True, show_label=False)
-                    
+                        
                     # Main content area
                     with gr.Column(scale=4):
                         # Admin/SPOC user selection for chat viewing
@@ -394,7 +79,7 @@ def create_gradio_interface():
                         # Chat interface
                         chatbot = gr.Chatbot(
                             label="",
-                            height="55vh",
+                            height="70vh",
                             show_copy_button=True,
                             show_share_button=False,
                             type="messages"
@@ -417,77 +102,81 @@ def create_gradio_interface():
                             feedback_warning = gr.Markdown("", visible=False)
                         
                         # Message input
-                        message_input = gr.Textbox(
-                            label="",
-                            placeholder="Ask me anything about the knowledge repository...",
-                            lines=3,
-                            max_lines=6,
-                            show_label=False,
-                            interactive=True
-                        )
-                        
+                        with gr.Row():
+                            with gr.Column(scale=10):
+                                message_input = gr.Textbox(
+                                    placeholder="Ask me anything about the knowledge repository...",
+                                    lines=4,          # default height
+                                    max_lines=12,     # allow multi-line expansion
+                                    show_label=False,
+                                    container=False,   # gives it a proper rounded box look
+                                    interactive=True
+                                )
+                            with gr.Column(scale=1, min_width=60):
+                                send_btn = gr.Button("Send", variant="primary", elem_classes="send-btn-compact", size="sm")
+                                    
                         # Note and send button
                         with gr.Row():
                             gr.Markdown("*Press Shift+Enter to send message, Enter for new line*")
-                            send_btn = gr.Button("Send", variant="primary", elem_classes="send-btn")
-            
+             
             # Files Tab (for all users)
             with gr.TabItem("📄 Files", visible=False) as files_tab:
-                gr.Markdown("## 📚 Document Repository")
-                
-                # Common Knowledge Documents Section
-                with gr.Column():
-                    gr.Markdown("### 🌐 Common Knowledge Documents")
-                    gr.Markdown("*Shared documents available to all users*")
+                with gr.Column(elem_classes="admin-section"):
+                    gr.Markdown("## 📚 Document Repository")
                     
-                    with gr.Row():
-                        common_search = gr.Textbox(
-                            label="Search Common Documents",
-                            placeholder="Search by name, type, or status...",
-                            interactive=True,
-                            scale=4
-                        )
-                        refresh_common_btn = gr.Button("🔄 Refresh", variant="secondary", scale=1)
-                    
-                    common_files_table = gr.Dataframe(
-                        label="",
-                        headers=["File Name", "Size", "Type", "Uploaded", "Source", "Actions"],
-                        datatype=["str", "str", "str", "str", "str", "html"],
-                        interactive=False,
-                        wrap=True,
-                        value=[[""] * 6],  # Reduced to 6 columns
-                        row_count=(10, "dynamic"),
-                        column_widths=["55%", "6%", "8%", "7%", "12%", "12%"]  # File Name gets 55%
-                    )
-
-                        # column_widths=["36%", 9%, "6%", "10%", "8%", "15%", "5%"]
-
-                    gr.Markdown("<br>")
-                
-                    # Personal Documents Section
-                    with gr.Column(visible=False):
-                        gr.Markdown("### 👤 Personal Documents")
-                        gr.Markdown("*Your personal document uploads*")
+                    # Common Knowledge Documents Section
+                    with gr.Column():
+                        # gr.Markdown("### 🌐 Common Knowledge Documents")
+                        # gr.Markdown("*Shared documents available to all users*")
                         
                         with gr.Row():
-                            personal_search = gr.Textbox(
-                                label="Search Personal Documents", 
-                                placeholder="Search your documents...",
+                            common_search = gr.Textbox(
+                                label="Search Common Documents",
+                                placeholder="Search by name, type, or status...",
                                 interactive=True,
                                 scale=4
                             )
-                            refresh_personal_btn = gr.Button("🔄 Refresh", variant="secondary", scale=1)
+                            refresh_common_btn = gr.Button("🔄 Refresh", variant="secondary", scale=1)
                         
-                        personal_files_table = gr.Dataframe(
+                        common_files_table = gr.Dataframe(
                             label="",
                             headers=["File Name", "Size", "Type", "Uploaded", "Source", "Actions"],
                             datatype=["str", "str", "str", "str", "str", "html"],
                             interactive=False,
                             wrap=True,
-                            value=[],
+                            value=[[""] * 6],  # Reduced to 6 columns
                             row_count=(10, "dynamic"),
-                            column_widths=["55%", "6%", "8%", "7%", "12%", "12%"]  # Same widths for consistency
+                            column_widths=["55%", "6%", "8%", "7%", "12%", "12%"]  # File Name gets 55%
                         )
+
+                            # column_widths=["36%", 9%, "6%", "10%", "8%", "15%", "5%"]
+
+                        gr.Markdown("<br>")
+                    
+                        # Personal Documents Section
+                        with gr.Column(visible=False):
+                            # gr.Markdown("### 👤 Personal Documents")
+                            # gr.Markdown("*Your personal document uploads*")
+                            
+                            with gr.Row():
+                                personal_search = gr.Textbox(
+                                    label="Search Personal Documents", 
+                                    placeholder="Search your documents...",
+                                    interactive=True,
+                                    scale=4
+                                )
+                                refresh_personal_btn = gr.Button("🔄 Refresh", variant="secondary", scale=1)
+                            
+                            personal_files_table = gr.Dataframe(
+                                label="",
+                                headers=["File Name", "Size", "Type", "Uploaded", "Source", "Actions"],
+                                datatype=["str", "str", "str", "str", "str", "html"],
+                                interactive=False,
+                                wrap=True,
+                                value=[],
+                                row_count=(10, "dynamic"),
+                                column_widths=["55%", "6%", "8%", "7%", "12%", "12%"]  # Same widths for consistency
+                            )
             
             # File Manager (Common) Tab
             with gr.TabItem("📂 File Manager (Common)", visible=False) as file_manager_common_tab:
@@ -1072,7 +761,7 @@ def create_gradio_interface():
                 gr.update(visible=user_reindex_visible),
                 gr.update(visible=user_cleanup_visible)
             )
-        
+
         # Load initial data
         demo.load(
             fn=get_initial_visibility, 
@@ -1083,6 +772,69 @@ def create_gradio_interface():
                 file_manager_title, file_manager_guidelines, file_manager_container,
                 chat_users_dropdown, user_reindex_btn, user_cleanup_btn
             ]
+        )
+
+        def show_welcome_if_needed():
+            """Show welcome message for first-time users"""
+            return None
+
+        # Add separate welcome check
+        demo.load(
+            fn=show_welcome_if_needed,
+            js="""
+            function() {
+                // Simple check - if URL has welcome=true, show message
+                if (window.location.search.includes('welcome=true')) {
+                    
+                    // Create welcome overlay
+                    const overlay = document.createElement('div');
+                    overlay.style.cssText = `
+                        position: fixed;
+                        top: 0; left: 0; right: 0; bottom: 0;
+                        background: rgba(0,0,0,0.5);
+                        z-index: 10000;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    `;
+                    
+                    const welcomeBox = document.createElement('div');
+                    welcomeBox.innerHTML = 'Namaskaram! Welcome to Isha Sevabot';
+                    welcomeBox.style.cssText = `
+                        background: white;
+                        padding: 3rem 4rem;
+                        border-radius: 20px;
+                        text-align: center;
+                        font-size: 1.5rem;
+                        font-weight: 600;
+                        color: #333;
+                        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                        transform: scale(0.8);
+                        transition: transform 0.3s ease;
+                    `;
+                    
+                    overlay.appendChild(welcomeBox);
+                    document.body.appendChild(overlay);
+                    
+                    // Animate in
+                    setTimeout(() => {
+                        welcomeBox.style.transform = 'scale(1)';
+                    }, 100);
+                    
+                    // Remove after 3 seconds
+                    setTimeout(() => {
+                        overlay.style.opacity = '0';
+                        overlay.style.transition = 'opacity 0.5s ease';
+                        setTimeout(() => {
+                            document.body.removeChild(overlay);
+                        }, 500);
+                    }, 3000);
+                    
+                    // Clean up URL
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                }
+            }
+            """
         )
         
         # Load user files for regular users
@@ -1550,6 +1302,7 @@ def create_ui(app: FastAPI):
         user_data = get_logged_in_user(request)
         if not user_data:
             return HTMLResponse(content=create_landing_page_html())
+        
         ui_service.set_user(user_data)
         return RedirectResponse("/gradio/")
 

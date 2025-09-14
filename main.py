@@ -65,7 +65,7 @@ async def get_user_stats(user_email: str):
 
 # FastAPI app
 app = FastAPI(
-    title="SEVABOT RAG Assistant",
+    title="Isha Sevabot",
     description="Multi-user RAG system with document management and conversational chat",
     version="2.0.0",
     docs_url="/admin/docs",
