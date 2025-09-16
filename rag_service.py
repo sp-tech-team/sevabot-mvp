@@ -68,16 +68,24 @@ class RAGService:
             vectorstore = self.get_common_knowledge_vectorstore()
             vector_count = vectorstore._collection.count()
             
-            # Filesystem stats
-            common_knowledge_path = Path(COMMON_KNOWLEDGE_PATH)
+            # S3 or filesystem stats
+            from config import USE_S3_STORAGE
+            from s3_storage import s3_storage
+            
             fs_files = 0
             fs_file_names = set()
             
-            if common_knowledge_path.exists():
-                for file_path in common_knowledge_path.iterdir():
-                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
-                        fs_files += 1
-                        fs_file_names.add(file_path.name)
+            if USE_S3_STORAGE:
+                s3_files = s3_storage.list_common_knowledge_files()
+                fs_files = len(s3_files)
+                fs_file_names = {f['file_name'] for f in s3_files}
+            else:
+                common_knowledge_path = Path(COMMON_KNOWLEDGE_PATH)
+                if common_knowledge_path.exists():
+                    for file_path in common_knowledge_path.iterdir():
+                        if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                            fs_files += 1
+                            fs_file_names.add(file_path.name)
             
             # Database stats
             db_files = 0
@@ -115,14 +123,21 @@ class RAGService:
     def cleanup_common_knowledge_vectors(self) -> Dict:
         """Clean up orphaned vector entries and return detailed results"""
         try:
-            # Get actual files on disk
-            actual_files = set()
-            common_knowledge_path = Path(COMMON_KNOWLEDGE_PATH)
+            from config import USE_S3_STORAGE
+            from s3_storage import s3_storage
             
-            if common_knowledge_path.exists():
-                for file_path in common_knowledge_path.iterdir():
-                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
-                        actual_files.add(file_path.name)
+            # Get actual files (S3 or local)
+            actual_files = set()
+            
+            if USE_S3_STORAGE:
+                s3_files = s3_storage.list_common_knowledge_files()
+                actual_files = {f['file_name'] for f in s3_files}
+            else:
+                common_knowledge_path = Path(COMMON_KNOWLEDGE_PATH)
+                if common_knowledge_path.exists():
+                    for file_path in common_knowledge_path.iterdir():
+                        if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                            actual_files.add(file_path.name)
             
             vectorstore = self.get_common_knowledge_vectorstore()
             collection = vectorstore._collection
@@ -301,21 +316,26 @@ class RAGService:
     def reindex_common_knowledge_pending_files(self) -> Tuple[int, int, List[str]]:
         """Re-index files that are not yet indexed"""
         try:
-            common_knowledge_path = Path(COMMON_KNOWLEDGE_PATH)
+            from config import USE_S3_STORAGE
+            from s3_storage import s3_storage
             
-            if not common_knowledge_path.exists():
-                return 0, 0, []
-            
-            # Get all files
+            # Get all files (S3 or local)
             all_files = []
-            for file_path in common_knowledge_path.iterdir():
-                if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
-                    all_files.append(file_path.name)
+            
+            if USE_S3_STORAGE:
+                s3_files = s3_storage.list_common_knowledge_files()
+                all_files = [f['file_name'] for f in s3_files]
+            else:
+                common_knowledge_path = Path(COMMON_KNOWLEDGE_PATH)
+                if common_knowledge_path.exists():
+                    for file_path in common_knowledge_path.iterdir():
+                        if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                            all_files.append(file_path.name)
             
             if not all_files:
                 return 0, 0, []
             
-            # Get currently indexed files
+            # Get currently indexed files from vector store
             vectorstore = self.get_common_knowledge_vectorstore()
             collection = vectorstore._collection
             
@@ -413,17 +433,24 @@ class RAGService:
     def get_user_vector_stats(self, user_email: str) -> Dict:
         """Get vector database statistics for specific user"""
         try:
+            from config import USE_S3_STORAGE
+            from s3_storage import s3_storage
+            
             vectorstore = self.get_user_vectorstore(user_email)
             doc_count = vectorstore._collection.count()
             
-            # Get file system stats
-            user_docs_path = self._get_user_documents_path(user_email)
+            # Get file system stats (S3 or local)
             fs_files = 0
             
-            if user_docs_path.exists():
-                for file_path in user_docs_path.rglob("*"):
-                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
-                        fs_files += 1
+            if USE_S3_STORAGE:
+                s3_files = s3_storage.list_user_files(user_email)
+                fs_files = len(s3_files)
+            else:
+                user_docs_path = self._get_user_documents_path(user_email)
+                if user_docs_path.exists():
+                    for file_path in user_docs_path.rglob("*"):
+                        if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                            fs_files += 1
             
             sync_status = self._determine_sync_status(doc_count, fs_files, 0)
             
@@ -447,13 +474,20 @@ class RAGService:
     def cleanup_user_orphaned_vectors(self, user_email: str) -> Dict:
         """Clean up vector entries for user files that don't exist on disk"""
         try:
-            actual_files = set()
-            user_docs_path = self._get_user_documents_path(user_email)
+            from config import USE_S3_STORAGE
+            from s3_storage import s3_storage
             
-            if user_docs_path.exists():
-                for file_path in user_docs_path.rglob("*"):
-                    if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
-                        actual_files.add(file_path.name)
+            actual_files = set()
+            
+            if USE_S3_STORAGE:
+                s3_files = s3_storage.list_user_files(user_email)
+                actual_files = {f['file_name'] for f in s3_files}
+            else:
+                user_docs_path = self._get_user_documents_path(user_email)
+                if user_docs_path.exists():
+                    for file_path in user_docs_path.rglob("*"):
+                        if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                            actual_files.add(file_path.name)
             
             vectorstore = self.get_user_vectorstore(user_email)
             collection = vectorstore._collection
@@ -495,7 +529,7 @@ class RAGService:
             
         except Exception as e:
             return {"status": "error", "message": str(e), "user_email": user_email}
-    
+
     def index_user_document(self, user_email: str, file_name: str) -> Tuple[bool, str, int]:
         """Index document for specific user"""
         try:
@@ -566,16 +600,21 @@ class RAGService:
     def reindex_user_pending_files(self, user_email: str) -> Tuple[int, int, List[str]]:
         """Re-index user files that are not yet indexed"""
         try:
-            user_docs_path = self._get_user_documents_path(user_email)
+            from config import USE_S3_STORAGE
+            from s3_storage import s3_storage
             
-            if not user_docs_path.exists():
-                return 0, 0, []
-            
-            # Get all user files
+            # Get all user files (S3 or local)
             user_files = []
-            for file_path in user_docs_path.rglob("*"):
-                if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
-                    user_files.append(file_path.name)
+            
+            if USE_S3_STORAGE:
+                s3_files = s3_storage.list_user_files(user_email)
+                user_files = [f['file_name'] for f in s3_files]
+            else:
+                user_docs_path = self._get_user_documents_path(user_email)
+                if user_docs_path.exists():
+                    for file_path in user_docs_path.rglob("*"):
+                        if file_path.is_file() and file_path.suffix.lower() in ['.txt', '.md', '.pdf', '.docx']:
+                            user_files.append(file_path.name)
             
             if not user_files:
                 return 0, 0, []

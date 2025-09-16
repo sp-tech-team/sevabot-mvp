@@ -362,6 +362,11 @@ class S3StorageService:
     
     # ========== HELPER METHODS ==========
     
+    def get_user_s3_prefix(self, user_email: str) -> str:
+        """Get S3 prefix for user files (public method)"""
+        user_dir = user_email.replace("@", "_").replace(".", "_")
+        return f"{self.user_prefix}{user_dir}/"
+    
     def _get_user_s3_prefix(self, user_email: str) -> str:
         """Get S3 prefix for user files"""
         user_dir = user_email.replace("@", "_").replace(".", "_")

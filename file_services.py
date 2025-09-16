@@ -462,7 +462,7 @@ class EnhancedFileService:
                     doc_data = {
                         "user_email": user_email,  # Simplified - removed user_id redundancy
                         "file_name": file_name,
-                        "file_path": f"s3://{s3_storage.bucket_name}/{s3_storage.get_user_s3_prefix(user_email)}{file_name}" if USE_S3_STORAGE else str(self.get_user_documents_path(user_email) / file_name),
+                        "file_path": f"s3://{s3_storage.bucket_name}/{s3_storage._get_user_s3_prefix(user_email)}{file_name}" if USE_S3_STORAGE else str(self.get_user_documents_path(user_email) / file_name),
                         "file_size": file_size,
                         "file_hash": file_hash,
                         "uploaded_by": user_email,
@@ -523,6 +523,17 @@ class EnhancedFileService:
     def _delete_user_file(self, user_email: str, file_name: str) -> Tuple[bool, str]:
         """Delete single user file"""
         try:
+            # Remove from vector store first (if exists)
+            try:
+                from rag_service import rag_service
+                vectorstore = rag_service.get_user_vectorstore(user_email)
+                collection = vectorstore._collection
+                results = collection.get(where={"file_name": file_name})
+                if results['ids']:
+                    collection.delete(ids=results['ids'])
+            except Exception as e:
+                print(f"Warning: Could not remove from vector store: {e}")
+            
             # Delete from storage
             if USE_S3_STORAGE:
                 success = s3_storage.delete_user_file(user_email, file_name)
@@ -535,7 +546,21 @@ class EnhancedFileService:
                 else:
                     success = False
             
-            return (True, "") if success else (False, "File not found or deletion failed")
+            if not success:
+                return False, "File not found or deletion failed"
+            
+            # Delete from database
+            if IS_PRODUCTION:
+                try:
+                    self.supabase.table("user_documents")\
+                        .delete()\
+                        .eq("user_email", user_email)\
+                        .eq("file_name", file_name)\
+                        .execute()
+                except Exception as db_error:
+                    print(f"Warning: Database cleanup failed for user file {file_name}: {db_error}")
+            
+            return True, ""
                 
         except Exception as e:
             return False, str(e)
@@ -566,8 +591,36 @@ class EnhancedFileService:
             file_size = file_info['file_size']
             last_modified = file_info['last_modified']
             
-            chunks_count = rag_service.get_file_chunks_count(file_name, is_common=True)
-            status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+            # Get chunks count from database first, then vector store as fallback
+            chunks_count = 0
+            status = "⏳ Pending"
+            
+            if IS_PRODUCTION:
+                try:
+                    result = self.supabase.table("common_knowledge_documents")\
+                        .select("chunks_count, indexed_at, uploaded_by")\
+                        .eq("file_name", file_name)\
+                        .execute()
+                    
+                    if result.data:
+                        db_chunks = result.data[0].get("chunks_count", 0)
+                        indexed_at = result.data[0].get("indexed_at")
+                        uploaded_by = result.data[0].get("uploaded_by", "System")
+                        
+                        if db_chunks and db_chunks > 0:
+                            chunks_count = db_chunks
+                            status = "✅ Indexed"
+                        elif indexed_at:
+                            status = "✅ Indexed"
+                    else:
+                        uploaded_by = "System"
+                except Exception as e:
+                    print(f"Error getting database info for {file_name}: {e}")
+                    uploaded_by = "System"
+            else:
+                chunks_count = rag_service.get_file_chunks_count(file_name, is_common=True)
+                status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+                uploaded_by = "System"
             
             upload_date = last_modified.strftime("%Y-%m-%d") if hasattr(last_modified, 'strftime') else str(last_modified)[:10]
 
@@ -575,19 +628,16 @@ class EnhancedFileService:
             file_url = s3_storage.get_common_knowledge_file_url(file_name)
             actions = self._create_file_actions(file_url)
 
-            # Uploader name from metadata
-            metadata = file_info.get('metadata', {})
-            uploader_name = "System"
-            if 'uploaded_by' in metadata:
-                uploader_name = self.get_user_display_name(metadata['uploaded_by'])
+            # Get uploader name
+            uploader_name = self.get_user_display_name(uploaded_by) if uploaded_by != "System" else "System"
 
             return [file_name, self.format_file_size(file_size), self.get_file_type(Path(file_name)), 
-                   chunks_count, status, upload_date, uploader_name, actions]
+                chunks_count, status, upload_date, uploader_name, actions]
 
         except Exception as e:
             print(f"Error creating S3 file row {file_info}: {e}")
             return None
-    
+
     def _create_common_knowledge_file_row_local(self, file_path: Path) -> Optional[list]:
         """Create a row for local common knowledge files"""
         try:
@@ -595,27 +645,44 @@ class EnhancedFileService:
 
             stat = file_path.stat()
             file_size = stat.st_size
-            chunks_count = rag_service.get_file_chunks_count(file_path.name, is_common=True)
-            status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
-            upload_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
-
-            file_url = f"/docs/{file_path.name}"
-            actions = self._create_file_actions(file_url)
-
-            uploader_name = "System"
+            
+            # Get chunks count from database first, then vector store as fallback
+            chunks_count = 0
+            status = "⏳ Pending"
+            uploaded_by = "System"
+            
             if IS_PRODUCTION:
                 try:
-                    result = self.supabase.table("common_knowledge_documents") \
-                        .select("uploaded_by") \
-                        .eq("file_name", file_path.name) \
+                    result = self.supabase.table("common_knowledge_documents")\
+                        .select("chunks_count, indexed_at, uploaded_by")\
+                        .eq("file_name", file_path.name)\
                         .execute()
-                    if result.data and result.data[0].get("uploaded_by"):
-                        uploader_name = self.get_user_display_name(result.data[0]["uploaded_by"])
-                except Exception:
-                    pass
+                    
+                    if result.data:
+                        db_chunks = result.data[0].get("chunks_count", 0)
+                        indexed_at = result.data[0].get("indexed_at")
+                        uploaded_by = result.data[0].get("uploaded_by", "System")
+                        
+                        if db_chunks and db_chunks > 0:
+                            chunks_count = db_chunks
+                            status = "✅ Indexed"
+                        elif indexed_at:
+                            status = "✅ Indexed"
+                except Exception as e:
+                    print(f"Error getting database info for {file_path.name}: {e}")
+            else:
+                chunks_count = rag_service.get_file_chunks_count(file_path.name, is_common=True)
+                status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+
+            upload_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
+            file_url = f"/docs/{file_path.name}"
+            actions = self._create_file_actions(file_url)
+            
+            # Get uploader display name
+            uploader_name = self.get_user_display_name(uploaded_by) if uploaded_by != "System" else "System"
 
             return [file_path.name, self.format_file_size(file_size), self.get_file_type(file_path), 
-                   chunks_count, status, upload_date, uploader_name, actions]
+                chunks_count, status, upload_date, uploader_name, actions]
 
         except Exception as e:
             print(f"Error reading local file {file_path}: {e}")
@@ -624,23 +691,48 @@ class EnhancedFileService:
     def _create_user_file_row_s3(self, file_info: Dict, user_email: str) -> Optional[List[Any]]:
         """Create file row for S3 user files"""
         try:
-            from rag_service import rag_service
-            
             file_name = file_info['file_name']
             file_size = file_info['file_size']
             last_modified = file_info['last_modified']
             
-            # Get chunks count from user vector store
-            chunks_count = self._get_user_file_chunks_count(user_email, file_name)
-            status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+            # Get chunks count from database first, then vector store as fallback
+            chunks_count = 0
+            status = "⏳ Pending"
+            uploaded_by = user_email
+            
+            if IS_PRODUCTION:
+                try:
+                    result = self.supabase.table("user_documents")\
+                        .select("chunks_count, indexed_at, uploaded_by")\
+                        .eq("user_email", user_email)\
+                        .eq("file_name", file_name)\
+                        .execute()
+                    
+                    if result.data:
+                        db_chunks = result.data[0].get("chunks_count", 0)
+                        indexed_at = result.data[0].get("indexed_at")
+                        uploaded_by = result.data[0].get("uploaded_by", user_email)
+                        
+                        if db_chunks and db_chunks > 0:
+                            chunks_count = db_chunks
+                            status = "✅ Indexed"
+                        elif indexed_at:
+                            status = "✅ Indexed"
+                except Exception as e:
+                    print(f"Error getting database info for user file {file_name}: {e}")
+            else:
+                # For development, check vector store directly
+                chunks_count = self._get_user_file_chunks_count(user_email, file_name)
+                status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+            
             upload_date = last_modified.strftime("%Y-%m-%d") if hasattr(last_modified, 'strftime') else str(last_modified)[:10]
             
-            user_display = self.get_user_display_name(user_email)
+            user_display = self.get_user_display_name(uploaded_by)
             file_url = s3_storage.get_user_file_url(user_email, file_name)
             actions = self._create_file_actions(file_url)
             
             return [file_name, self.format_file_size(file_size), self.get_file_type(Path(file_name)), 
-                   chunks_count, status, upload_date, user_display, actions]
+                chunks_count, status, upload_date, user_display, actions]
             
         except Exception as e:
             print(f"Error creating S3 user file row {file_info}: {e}")
@@ -652,17 +744,44 @@ class EnhancedFileService:
             stat = file_path.stat()
             file_size = stat.st_size
             
-            chunks_count = self._get_user_file_chunks_count(user_email, file_path.name)
-            status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+            # Get chunks count from database first, then vector store as fallback
+            chunks_count = 0
+            status = "⏳ Pending"
+            uploaded_by = user_email
+            
+            if IS_PRODUCTION:
+                try:
+                    result = self.supabase.table("user_documents")\
+                        .select("chunks_count, indexed_at, uploaded_by")\
+                        .eq("user_email", user_email)\
+                        .eq("file_name", file_path.name)\
+                        .execute()
+                    
+                    if result.data:
+                        db_chunks = result.data[0].get("chunks_count", 0)
+                        indexed_at = result.data[0].get("indexed_at")
+                        uploaded_by = result.data[0].get("uploaded_by", user_email)
+                        
+                        if db_chunks and db_chunks > 0:
+                            chunks_count = db_chunks
+                            status = "✅ Indexed"
+                        elif indexed_at:
+                            status = "✅ Indexed"
+                except Exception as e:
+                    print(f"Error getting database info for user file {file_path.name}: {e}")
+            else:
+                chunks_count = self._get_user_file_chunks_count(user_email, file_path.name)
+                status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+            
             upload_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
             
-            user_display = self.get_user_display_name(user_email)
+            user_display = self.get_user_display_name(uploaded_by)
             user_dir = user_email.replace("@", "_").replace(".", "_")
             file_url = f"/user_docs/{user_dir}/{file_path.name}"
             actions = self._create_file_actions(file_url)
             
             return [file_path.name, self.format_file_size(file_size), self.get_file_type(file_path), 
-                   chunks_count, status, upload_date, user_display, actions]
+                chunks_count, status, upload_date, user_display, actions]
             
         except Exception as e:
             print(f"Error reading local user file {file_path}: {e}")
@@ -690,22 +809,35 @@ class EnhancedFileService:
         else:
             return '<span style="color: #ef4444;">❌ Unavailable</span>'
     
-    def _store_file_in_database(self, file_name: str, file_size: int, uploaded_by: str):
+    def _store_file_in_database(self, file_name: str, file_size: int, uploaded_by: str, file_path: str = None):
         """Store file metadata in database"""
         try:
+            # Calculate file hash
+            file_hash = ""
+            if file_path and os.path.exists(file_path):
+                file_hash = self._calculate_file_hash(file_path)
+            
+            # Get uploader display name
+            uploader_name = self.get_user_display_name(uploaded_by)
+            
             doc_data = {
                 "file_name": file_name,
-                "file_path": f"s3://{s3_storage.bucket_name}/{s3_storage.common_prefix}{file_name}" if USE_S3_STORAGE else str(Path(file_name)),
+                "file_path": f"s3://{s3_storage.bucket_name}/{s3_storage.common_prefix}{file_name}" if USE_S3_STORAGE else str(self.common_knowledge_path / file_name),
                 "file_size": file_size,
-                "file_hash": "",  # Skip hash for now
+                "file_hash": file_hash,
                 "uploaded_by": uploaded_by,
                 "is_common_knowledge": True,
-                "storage_type": "s3" if USE_S3_STORAGE else "local"
+                "storage_type": "s3" if USE_S3_STORAGE else "local",
+                "chunks_count": 0,
+                "indexed_at": None
             }
+            
             self.supabase.table("common_knowledge_documents").insert(doc_data).execute()
+            print(f"Database record created for {file_name} by {uploader_name}")
+            
         except Exception as db_error:
             print(f"Warning: Database update failed for {file_name}: {db_error}")
-    
+
     def _index_file(self, file_name: str, messages: List[str], is_common: bool = True, uploaded_by: str = None) -> int:
         """Index a file and return chunks count"""
         try:
