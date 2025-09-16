@@ -1,48 +1,39 @@
-# file_services.py - Enhanced file management with comprehensive functionality
+# file_services.py - Complete file management with S3 storage integration
 import os
 import hashlib
 import shutil
+import tempfile
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Any
 from datetime import datetime
 
 from config import (
     COMMON_KNOWLEDGE_PATH, RAG_DOCUMENTS_PATH, 
-    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
+    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION, USE_S3_STORAGE
 )
 from constants import SUPPORTED_EXTENSIONS, MAX_FILE_SIZE_MB, ERROR_MESSAGES
 from supabase import create_client
+from s3_storage import s3_storage
 
 class EnhancedFileService:
-    """Unified file management service for both common knowledge and user files"""
+    """Unified file management service with S3 storage support"""
     
     def __init__(self):
         self.supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        
+        # Create local directories for temp processing (always needed)
         self.common_knowledge_path = Path(COMMON_KNOWLEDGE_PATH)
         self.documents_path = Path(RAG_DOCUMENTS_PATH)
         self.common_knowledge_path.mkdir(parents=True, exist_ok=True)
         self.documents_path.mkdir(parents=True, exist_ok=True)
     
-    # ========== COMMON OPERATIONS ==========
-    
-    def get_file_hash(self, file_path: Path) -> str:
-        """Generate MD5 hash of file"""
-        try:
-            with open(file_path, 'rb') as f:
-                file_hash = hashlib.md5()
-                for chunk in iter(lambda: f.read(4096), b""):
-                    file_hash.update(chunk)
-                return file_hash.hexdigest()
-        except Exception as e:
-            print(f"Error generating hash for {file_path}: {e}")
-            return ""
+    # ========== FILE VALIDATION AND UTILITIES ==========
     
     def is_valid_file(self, file_name: str, file_size: int) -> Tuple[bool, str]:
         """Validate file name and size"""
         if not file_name or file_name.strip() == "":
             return False, "Invalid file name"
         
-        file_ext = Path(file_name).suffix.lower()
         if not any(file_name.lower().endswith(ext) for ext in SUPPORTED_EXTENSIONS):
             return False, f"Unsupported format. Supported: {', '.join(SUPPORTED_EXTENSIONS)}"
         
@@ -70,6 +61,23 @@ class EnhancedFileService:
         file_ext = file_path.suffix.upper().replace(".", "")
         return f"{file_ext} Document" if file_ext else "Document"
     
+    def get_user_display_name(self, email: str) -> str:
+        """Get actual user display name from database"""
+        try:
+            if IS_PRODUCTION:
+                result = self.supabase.table("users")\
+                    .select("name")\
+                    .eq("email", email)\
+                    .execute()
+                
+                if result.data and result.data[0].get("name"):
+                    return result.data[0]["name"]
+            
+            return email.split('@')[0].replace('.', ' ').replace('-', ' ').title()
+        except Exception as e:
+            print(f"Error getting user name: {e}")
+            return email.split('@')[0].replace('.', ' ').title()
+    
     # ========== COMMON KNOWLEDGE OPERATIONS ==========
     
     def upload_common_knowledge_files(self, files, uploaded_by: str) -> Tuple[List[List[Any]], str, List[str]]:
@@ -77,96 +85,94 @@ class EnhancedFileService:
         if not files:
             return [], "No files selected", []
 
-        try:
-            file_paths = self._extract_file_paths(files)
-            if not file_paths:
-                return [], "No valid file paths found", []
+        file_paths = self._extract_file_paths(files)
+        if not file_paths:
+            return [], "No valid file paths found", []
 
-            uploaded_count = 0
-            total_chunks = 0
-            errors = []
-            status_updates = []
+        uploaded_count = 0
+        total_chunks = 0
+        errors = []
+        status_updates = []
 
-            for i, file_path in enumerate(file_paths):
-                result = self._process_common_knowledge_file_upload(
-                    file_path, uploaded_by, i + 1, len(file_paths)
-                )
-                
-                if result["success"]:
-                    uploaded_count += 1
-                    total_chunks += result["chunks"]
-                    status_updates.extend(result["messages"])
-                else:
-                    errors.extend(result["errors"])
-                    status_updates.extend(result["messages"])
-
-            final_status = self._build_status_message(status_updates, uploaded_count, total_chunks, errors, "uploaded")
-            files_list = self.get_common_knowledge_file_list()
-            choices = [row[0] for row in files_list] if files_list else []
+        for i, file_path in enumerate(file_paths):
+            result = self._process_common_knowledge_upload(file_path, uploaded_by, i + 1, len(file_paths))
             
-            return files_list, final_status, choices
-            
-        except Exception as e:
-            return [], f"Upload error: {str(e)}", []
+            if result["success"]:
+                uploaded_count += 1
+                total_chunks += result["chunks"]
+                status_updates.extend(result["messages"])
+            else:
+                errors.extend(result["errors"])
+                status_updates.extend(result["messages"])
+
+        final_status = self._build_status_message(status_updates, uploaded_count, total_chunks, errors, "uploaded")
+        files_list = self.get_common_knowledge_file_list()
+        choices = [row[0] for row in files_list] if files_list else []
+        
+        return files_list, final_status, choices
 
     def delete_common_knowledge_files(self, selected_files: List[str]) -> Tuple[List[List[Any]], str, List[str]]:
         """Delete files from common knowledge repository"""
         if not selected_files:
             return [], "No files selected", []
         
-        try:
-            deleted_count = 0
-            errors = []
-            status_updates = []
+        deleted_count = 0
+        errors = []
+        status_updates = []
 
-            for i, file_name in enumerate(selected_files):
-                status_updates.append(f"Deleting {i+1}/{len(selected_files)}: {file_name}")
-                
-                success, error_msg = self._delete_common_knowledge_file(file_name)
-                if success:
-                    deleted_count += 1
-                    status_updates.append(f"✅ Deleted: {file_name}")
-                else:
-                    errors.append(f"{file_name}: {error_msg}")
+        for i, file_name in enumerate(selected_files):
+            status_updates.append(f"Deleting {i+1}/{len(selected_files)}: {file_name}")
+            
+            success, error_msg = self._delete_common_knowledge_file(file_name)
+            if success:
+                deleted_count += 1
+                status_updates.append(f"✅ Deleted: {file_name}")
+            else:
+                errors.append(f"{file_name}: {error_msg}")
 
-            final_status = self._build_status_message(status_updates, deleted_count, 0, errors, "deleted")
-            files_list = self.get_common_knowledge_file_list()
-            choices = [row[0] for row in files_list] if files_list else []
-            
-            return files_list, final_status, choices
-            
-        except Exception as e:
-            return [], f"Delete error: {str(e)}", []
+        final_status = self._build_status_message(status_updates, deleted_count, 0, errors, "deleted")
+        files_list = self.get_common_knowledge_file_list()
+        choices = [row[0] for row in files_list] if files_list else []
+        
+        return files_list, final_status, choices
     
     def get_common_knowledge_file_list(self, search_term: str = "") -> List[List[Any]]:
-        """Get formatted file list for common knowledge repository with search"""
-        try:
-            files = []
-            
+        """Get formatted file list for common knowledge repository"""
+        files = []
+        
+        if USE_S3_STORAGE:
+            # Get files from S3
+            s3_files = s3_storage.list_common_knowledge_files()
+            for file_info in s3_files:
+                file_row = self._create_common_knowledge_file_row_s3(file_info)
+                if file_row and self._matches_search(file_row, search_term):
+                    files.append(file_row)
+        else:
             # Get local files
             if self.common_knowledge_path.exists():
                 for file_path in self.common_knowledge_path.iterdir():
                     if file_path.is_file() and file_path.suffix.lower() in SUPPORTED_EXTENSIONS:
-                        file_row = self._create_common_knowledge_file_row(file_path)
+                        file_row = self._create_common_knowledge_file_row_local(file_path)
                         if file_row and self._matches_search(file_row, search_term):
                             files.append(file_row)
-            
-            # Get cloud files if in production
-            if IS_PRODUCTION:
-                cloud_files = self._get_cloud_common_knowledge_files(files, search_term)
-                files.extend(cloud_files)
-            
-            return files
-            
-        except Exception as e:
-            print(f"Error getting common knowledge file list: {e}")
-            return []
+        
+        return files
     
     def get_common_knowledge_file_list_for_users(self) -> List[List[Any]]:
         """Get user-friendly file list for regular users (simplified view)"""
-        try:
-            files = []
-            
+        files = []
+        
+        if USE_S3_STORAGE:
+            # Get files from S3
+            s3_files = s3_storage.list_common_knowledge_files()
+            for file_info in s3_files:
+                files.append([
+                    file_info['file_name'],
+                    self.format_file_size(file_info['file_size']),
+                    self.get_file_type(Path(file_info['file_name'])),
+                    file_info['last_modified'].strftime("%Y-%m-%d") if hasattr(file_info['last_modified'], 'strftime') else str(file_info['last_modified'])[:10]
+                ])
+        else:
             # Get local files
             if self.common_knowledge_path.exists():
                 for file_path in self.common_knowledge_path.iterdir():
@@ -182,35 +188,9 @@ class EnhancedFileService:
                         except Exception as e:
                             print(f"Error reading file {file_path}: {e}")
                             continue
-            
-            # Also check database if in production
-            if IS_PRODUCTION:
-                try:
-                    result = self.supabase.table("common_knowledge_documents")\
-                        .select("*")\
-                        .order("uploaded_at", desc=True)\
-                        .execute()
-                    
-                    local_file_names = {row[0] for row in files}
-                    
-                    if result.data:
-                        for file_info in result.data:
-                            if file_info["file_name"] not in local_file_names:
-                                files.append([
-                                    file_info["file_name"],
-                                    self.format_file_size(file_info["file_size"]),
-                                    self.get_file_type(Path(file_info["file_name"])),
-                                    file_info["uploaded_at"][:10]
-                                ])
-                except Exception as e:
-                    print(f"Error getting database files for users: {e}")
-            
-            return files
-            
-        except Exception as e:
-            print(f"Error getting user file list: {e}")
-            return []
-    
+        
+        return files
+
     def reindex_common_knowledge_pending_files(self) -> str:
         """Re-index files that are not yet indexed"""
         try:
@@ -241,7 +221,7 @@ class EnhancedFileService:
     # ========== USER FILE OPERATIONS ==========
     
     def get_user_documents_path(self, user_email: str) -> Path:
-        """Get user-specific documents directory"""
+        """Get user-specific documents directory (for local temp processing)"""
         user_dir = self.documents_path / user_email.replace("@", "_").replace(".", "_")
         user_dir.mkdir(parents=True, exist_ok=True)
         return user_dir
@@ -251,91 +231,85 @@ class EnhancedFileService:
         if not files or not user_email:
             return [], "No files selected or user not specified", []
 
-        try:
-            file_paths = self._extract_file_paths(files)
-            if not file_paths:
-                return [], "No valid file paths found", []
+        file_paths = self._extract_file_paths(files)
+        if not file_paths:
+            return [], "No valid file paths found", []
 
-            uploaded_count = 0
-            total_chunks = 0
-            errors = []
-            status_updates = []
+        uploaded_count = 0
+        total_chunks = 0
+        errors = []
+        status_updates = []
 
-            for i, file_path in enumerate(file_paths):
-                result = self._process_user_file_upload(
-                    user_email, file_path, i + 1, len(file_paths)
-                )
-                
-                if result["success"]:
-                    uploaded_count += 1
-                    total_chunks += result["chunks"]
-                    status_updates.extend(result["messages"])
-                else:
-                    errors.extend(result["errors"])
-                    status_updates.extend(result["messages"])
-
-            final_status = self._build_status_message(
-                status_updates, uploaded_count, total_chunks, errors, "uploaded", user_email
-            )
-            files_list = self.get_user_file_list(user_email)
-            choices = [row[0] for row in files_list] if files_list else []
+        for i, file_path in enumerate(file_paths):
+            result = self._process_user_file_upload(user_email, file_path, i + 1, len(file_paths))
             
-            return files_list, final_status, choices
-            
-        except Exception as e:
-            return [], f"Upload error: {str(e)}", []
+            if result["success"]:
+                uploaded_count += 1
+                total_chunks += result["chunks"]
+                status_updates.extend(result["messages"])
+            else:
+                errors.extend(result["errors"])
+                status_updates.extend(result["messages"])
+
+        final_status = self._build_status_message(
+            status_updates, uploaded_count, total_chunks, errors, "uploaded", user_email
+        )
+        files_list = self.get_user_file_list(user_email)
+        choices = [row[0] for row in files_list] if files_list else []
+        
+        return files_list, final_status, choices
     
     def delete_user_files(self, user_email: str, selected_files: List[str]) -> Tuple[List[List[Any]], str, List[str]]:
         """Delete files for specific user"""
         if not selected_files or not user_email:
             return [], "No files selected or user not specified", []
         
-        try:
-            deleted_count = 0
-            errors = []
-            status_updates = []
+        deleted_count = 0
+        errors = []
+        status_updates = []
 
-            for i, file_name in enumerate(selected_files):
-                status_updates.append(f"Deleting {i+1}/{len(selected_files)}: {file_name}")
-                
-                success, error_msg = self._delete_user_file(user_email, file_name)
-                if success:
-                    deleted_count += 1
-                    status_updates.append(f"✅ Deleted: {file_name}")
-                else:
-                    errors.append(f"{file_name}: {error_msg}")
+        for i, file_name in enumerate(selected_files):
+            status_updates.append(f"Deleting {i+1}/{len(selected_files)}: {file_name}")
+            
+            success, error_msg = self._delete_user_file(user_email, file_name)
+            if success:
+                deleted_count += 1
+                status_updates.append(f"✅ Deleted: {file_name}")
+            else:
+                errors.append(f"{file_name}: {error_msg}")
 
-            final_status = self._build_status_message(
-                status_updates, deleted_count, 0, errors, "deleted", user_email
-            )
-            files_list = self.get_user_file_list(user_email)
-            choices = [row[0] for row in files_list] if files_list else []
-            
-            return files_list, final_status, choices
-            
-        except Exception as e:
-            return [], f"Delete error: {str(e)}", []
+        final_status = self._build_status_message(
+            status_updates, deleted_count, 0, errors, "deleted", user_email
+        )
+        files_list = self.get_user_file_list(user_email)
+        choices = [row[0] for row in files_list] if files_list else []
+        
+        return files_list, final_status, choices
     
     def get_user_file_list(self, user_email: str, search_term: str = "") -> List[List[Any]]:
-        """Get formatted file list for specific user with search"""
+        """Get formatted file list for specific user"""
         if not user_email:
             return []
         
-        try:
+        files = []
+        
+        if USE_S3_STORAGE:
+            # Get files from S3
+            s3_files = s3_storage.list_user_files(user_email)
+            for file_info in s3_files:
+                file_row = self._create_user_file_row_s3(file_info, user_email)
+                if file_row and self._matches_search(file_row, search_term):
+                    files.append(file_row)
+        else:
+            # Get local files
             user_docs_path = self.get_user_documents_path(user_email)
-            file_list = []
-            
             for file_path in user_docs_path.rglob("*"):
                 if file_path.is_file() and file_path.suffix.lower() in SUPPORTED_EXTENSIONS:
-                    file_row = self._create_user_file_row(file_path, user_email)
+                    file_row = self._create_user_file_row_local(file_path, user_email)
                     if file_row and self._matches_search(file_row, search_term):
-                        file_list.append(file_row)
-            
-            return file_list
-            
-        except Exception as e:
-            print(f"Error getting user file list: {e}")
-            return []
+                        files.append(file_row)
+        
+        return files
     
     def reindex_user_pending_files(self, user_email: str) -> str:
         """Re-index user files that are not yet indexed"""
@@ -376,133 +350,88 @@ class EnhancedFileService:
                 file_paths = [files]
         return file_paths
     
-    def _process_common_knowledge_file_upload(self, file_path: str, uploaded_by: str, current: int, total: int) -> Dict:
+    def _process_common_knowledge_upload(self, file_path: str, uploaded_by: str, current: int, total: int) -> Dict:
         """Process single common knowledge file upload"""
         if not file_path or not os.path.exists(file_path):
-            return {
-                "success": False,
-                "chunks": 0,
-                "messages": [],
-                "errors": [f"File not found: {file_path}"]
-            }
+            return {"success": False, "chunks": 0, "messages": [], "errors": [f"File not found: {file_path}"]}
         
         file_name = os.path.basename(file_path)
         messages = [f"Processing {current}/{total}: {file_name}"]
         
         try:
             file_size = os.path.getsize(file_path)
-        except OSError as e:
-            return {
-                "success": False,
-                "chunks": 0,
-                "messages": messages,
-                "errors": [f"Cannot access {file_name}: {str(e)}"]
-            }
-        
-        # Validate file
-        is_valid, error_msg = self.is_valid_file(file_name, file_size)
-        if not is_valid:
-            return {
-                "success": False,
-                "chunks": 0,
-                "messages": messages,
-                "errors": [f"{file_name}: {error_msg}"]
-            }
-        
-        # Check if file already exists
-        target_path = self.common_knowledge_path / file_name
-        if target_path.exists():
-            return {
-                "success": False,
-                "chunks": 0,
-                "messages": messages,
-                "errors": [f"{file_name}: File already exists"]
-            }
-        
-        try:
-            # Copy file
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(file_path, target_path)
+            is_valid, error_msg = self.is_valid_file(file_name, file_size)
+            if not is_valid:
+                return {"success": False, "chunks": 0, "messages": messages, "errors": [f"{file_name}: {error_msg}"]}
             
-            if not target_path.exists():
-                return {
-                    "success": False,
-                    "chunks": 0,
-                    "messages": messages,
-                    "errors": [f"{file_name}: Copy failed"]
-                }
+            # Check if file already exists
+            if self._file_exists_in_common_knowledge(file_name):
+                return {"success": False, "chunks": 0, "messages": messages, "errors": [f"{file_name}: File already exists"]}
+            
+            # Upload file to storage
+            if USE_S3_STORAGE:
+                success = s3_storage.upload_common_knowledge_file(file_path, file_name)
+            else:
+                target_path = self.common_knowledge_path / file_name
+                shutil.copy2(file_path, target_path)
+                success = target_path.exists()
+            
+            if not success:
+                return {"success": False, "chunks": 0, "messages": messages, "errors": [f"{file_name}: Upload failed"]}
             
             messages.append(f"✅ Uploaded: {file_name}")
             
-            # Store in database only in production
+            # Store in database
             if IS_PRODUCTION:
-                self._store_file_in_database(target_path, file_name, file_size, uploaded_by)
+                self._store_file_in_database(file_name, file_size, uploaded_by)
             
             # Index the file
             chunks_count = self._index_file(file_name, messages, is_common=True)
             
-            return {
-                "success": True,
-                "chunks": chunks_count,
-                "messages": messages,
-                "errors": []
-            }
+            return {"success": True, "chunks": chunks_count, "messages": messages, "errors": []}
             
         except Exception as e:
-            return {
-                "success": False,
-                "chunks": 0,
-                "messages": messages,
-                "errors": [f"{file_name}: {str(e)}"]
-            }
+            return {"success": False, "chunks": 0, "messages": messages, "errors": [f"{file_name}: {str(e)}"]}
     
     def _process_user_file_upload(self, user_email: str, file_path: str, current: int, total: int) -> Dict:
         """Process single user file upload"""
         if not file_path or not os.path.exists(file_path):
-            return {
-                "success": False,
-                "chunks": 0,
-                "messages": [],
-                "errors": [f"File not found: {file_path}"]
-            }
+            return {"success": False, "chunks": 0, "messages": [], "errors": [f"File not found: {file_path}"]}
         
         file_name = os.path.basename(file_path)
         messages = [f"Processing {current}/{total}: {file_name}"]
         
-        user_docs_path = self.get_user_documents_path(user_email)
-        target_path = user_docs_path / file_name
-        
-        # Check if file already exists
-        if target_path.exists():
-            return {
-                "success": False,
-                "chunks": 0,
-                "messages": messages,
-                "errors": [f"{file_name}: File already exists for user"]
-            }
-        
         try:
-            # Copy file to user directory
-            shutil.copy2(file_path, target_path)
+            file_size = os.path.getsize(file_path)
+            is_valid, error_msg = self.is_valid_file(file_name, file_size)
+            if not is_valid:
+                return {"success": False, "chunks": 0, "messages": messages, "errors": [f"{file_name}: {error_msg}"]}
+            
+            # Check if file already exists
+            if self._file_exists_for_user(user_email, file_name):
+                return {"success": False, "chunks": 0, "messages": messages, "errors": [f"{file_name}: File already exists for user"]}
+            
+            # Upload file to storage
+            if USE_S3_STORAGE:
+                success = s3_storage.upload_user_file(user_email, file_path, file_name)
+            else:
+                user_docs_path = self.get_user_documents_path(user_email)
+                target_path = user_docs_path / file_name
+                shutil.copy2(file_path, target_path)
+                success = target_path.exists()
+            
+            if not success:
+                return {"success": False, "chunks": 0, "messages": messages, "errors": [f"{file_name}: Upload failed"]}
+            
             messages.append(f"✅ Uploaded: {file_name}")
             
-            # Index the file for the user
+            # Index the file
             chunks_count = self._index_user_file(user_email, file_name, messages)
             
-            return {
-                "success": True,
-                "chunks": chunks_count,
-                "messages": messages,
-                "errors": []
-            }
+            return {"success": True, "chunks": chunks_count, "messages": messages, "errors": []}
             
         except Exception as e:
-            return {
-                "success": False,
-                "chunks": 0,
-                "messages": messages,
-                "errors": [f"{file_name}: {str(e)}"]
-            }
+            return {"success": False, "chunks": 0, "messages": messages, "errors": [f"{file_name}: {str(e)}"]}
     
     def _delete_common_knowledge_file(self, file_name: str) -> Tuple[bool, str]:
         """Delete single common knowledge file"""
@@ -511,12 +440,21 @@ class EnhancedFileService:
             from rag_service import rag_service
             rag_service.remove_common_knowledge_document(file_name)
             
-            # Delete from filesystem
-            file_path = self.common_knowledge_path / file_name
-            if file_path.exists():
-                file_path.unlink()
+            # Delete from storage
+            if USE_S3_STORAGE:
+                success = s3_storage.delete_common_knowledge_file(file_name)
+            else:
+                file_path = self.common_knowledge_path / file_name
+                if file_path.exists():
+                    file_path.unlink()
+                    success = True
+                else:
+                    success = False
             
-            # Delete from database only in production
+            if not success:
+                return False, "Storage deletion failed"
+            
+            # Delete from database
             if IS_PRODUCTION:
                 try:
                     self.supabase.table("common_knowledge_documents")\
@@ -534,29 +472,184 @@ class EnhancedFileService:
     def _delete_user_file(self, user_email: str, file_name: str) -> Tuple[bool, str]:
         """Delete single user file"""
         try:
-            user_docs_path = self.get_user_documents_path(user_email)
-            file_path = user_docs_path / file_name
-            
-            if file_path.exists():
-                file_path.unlink()
-                return True, ""
+            # Delete from storage
+            if USE_S3_STORAGE:
+                success = s3_storage.delete_user_file(user_email, file_name)
             else:
-                return False, "File not found"
+                user_docs_path = self.get_user_documents_path(user_email)
+                file_path = user_docs_path / file_name
+                if file_path.exists():
+                    file_path.unlink()
+                    success = True
+                else:
+                    success = False
+            
+            return (True, "") if success else (False, "File not found or deletion failed")
                 
         except Exception as e:
             return False, str(e)
     
-    def _store_file_in_database(self, target_path: Path, file_name: str, file_size: int, uploaded_by: str):
+    def _file_exists_in_common_knowledge(self, file_name: str) -> bool:
+        """Check if file exists in common knowledge storage"""
+        if USE_S3_STORAGE:
+            s3_files = s3_storage.list_common_knowledge_files()
+            return any(f['file_name'] == file_name for f in s3_files)
+        else:
+            return (self.common_knowledge_path / file_name).exists()
+    
+    def _file_exists_for_user(self, user_email: str, file_name: str) -> bool:
+        """Check if file exists for user"""
+        if USE_S3_STORAGE:
+            user_files = s3_storage.list_user_files(user_email)
+            return any(f['file_name'] == file_name for f in user_files)
+        else:
+            user_docs_path = self.get_user_documents_path(user_email)
+            return (user_docs_path / file_name).exists()
+    
+    def _create_common_knowledge_file_row_s3(self, file_info: Dict) -> Optional[list]:
+        """Create a row for S3 common knowledge files"""
+        try:
+            from rag_service import rag_service
+
+            file_name = file_info['file_name']
+            file_size = file_info['file_size']
+            last_modified = file_info['last_modified']
+            
+            chunks_count = rag_service.get_file_chunks_count(file_name, is_common=True)
+            status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+            
+            upload_date = last_modified.strftime("%Y-%m-%d") if hasattr(last_modified, 'strftime') else str(last_modified)[:10]
+
+            # Get file URL
+            file_url = s3_storage.get_common_knowledge_file_url(file_name)
+            actions = self._create_file_actions(file_url)
+
+            # Uploader name from metadata
+            metadata = file_info.get('metadata', {})
+            uploader_name = "System"
+            if 'uploaded_by' in metadata:
+                uploader_name = self.get_user_display_name(metadata['uploaded_by'])
+
+            return [file_name, self.format_file_size(file_size), self.get_file_type(Path(file_name)), 
+                   chunks_count, status, upload_date, uploader_name, actions]
+
+        except Exception as e:
+            print(f"Error creating S3 file row {file_info}: {e}")
+            return None
+    
+    def _create_common_knowledge_file_row_local(self, file_path: Path) -> Optional[list]:
+        """Create a row for local common knowledge files"""
+        try:
+            from rag_service import rag_service
+
+            stat = file_path.stat()
+            file_size = stat.st_size
+            chunks_count = rag_service.get_file_chunks_count(file_path.name, is_common=True)
+            status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+            upload_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
+
+            file_url = f"/docs/{file_path.name}"
+            actions = self._create_file_actions(file_url)
+
+            uploader_name = "System"
+            if IS_PRODUCTION:
+                try:
+                    result = self.supabase.table("common_knowledge_documents") \
+                        .select("uploaded_by") \
+                        .eq("file_name", file_path.name) \
+                        .execute()
+                    if result.data and result.data[0].get("uploaded_by"):
+                        uploader_name = self.get_user_display_name(result.data[0]["uploaded_by"])
+                except Exception:
+                    pass
+
+            return [file_path.name, self.format_file_size(file_size), self.get_file_type(file_path), 
+                   chunks_count, status, upload_date, uploader_name, actions]
+
+        except Exception as e:
+            print(f"Error reading local file {file_path}: {e}")
+            return None
+    
+    def _create_user_file_row_s3(self, file_info: Dict, user_email: str) -> Optional[List[Any]]:
+        """Create file row for S3 user files"""
+        try:
+            from rag_service import rag_service
+            
+            file_name = file_info['file_name']
+            file_size = file_info['file_size']
+            last_modified = file_info['last_modified']
+            
+            # Get chunks count from user vector store
+            chunks_count = self._get_user_file_chunks_count(user_email, file_name)
+            status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+            upload_date = last_modified.strftime("%Y-%m-%d") if hasattr(last_modified, 'strftime') else str(last_modified)[:10]
+            
+            user_display = self.get_user_display_name(user_email)
+            file_url = s3_storage.get_user_file_url(user_email, file_name)
+            actions = self._create_file_actions(file_url)
+            
+            return [file_name, self.format_file_size(file_size), self.get_file_type(Path(file_name)), 
+                   chunks_count, status, upload_date, user_display, actions]
+            
+        except Exception as e:
+            print(f"Error creating S3 user file row {file_info}: {e}")
+            return None
+    
+    def _create_user_file_row_local(self, file_path: Path, user_email: str) -> Optional[List[Any]]:
+        """Create file row for local user files"""
+        try:
+            stat = file_path.stat()
+            file_size = stat.st_size
+            
+            chunks_count = self._get_user_file_chunks_count(user_email, file_path.name)
+            status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
+            upload_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
+            
+            user_display = self.get_user_display_name(user_email)
+            user_dir = user_email.replace("@", "_").replace(".", "_")
+            file_url = f"/user_docs/{user_dir}/{file_path.name}"
+            actions = self._create_file_actions(file_url)
+            
+            return [file_path.name, self.format_file_size(file_size), self.get_file_type(file_path), 
+                   chunks_count, status, upload_date, user_display, actions]
+            
+        except Exception as e:
+            print(f"Error reading local user file {file_path}: {e}")
+            return None
+    
+    def _get_user_file_chunks_count(self, user_email: str, file_name: str) -> int:
+        """Get chunks count for user file"""
+        try:
+            from rag_service import rag_service
+            vectorstore = rag_service.get_user_vectorstore(user_email)
+            collection = vectorstore._collection
+            existing_results = collection.get(where={"file_name": file_name})
+            return len(existing_results['ids']) if existing_results and existing_results['ids'] else 0
+        except Exception:
+            return 0
+    
+    def _create_file_actions(self, file_url: Optional[str]) -> str:
+        """Create actions HTML for file row"""
+        if file_url:
+            return (
+                f'<a href="{file_url}" target="_blank" style="color: #3b82f6; text-decoration: none; font-weight: 500;">👁 View</a> '
+                f'<span style="color: #6b7280;">|</span> '
+                f'<a href="{file_url}" download style="color: #059669; text-decoration: none; font-weight: 500;">💾 Download</a>'
+            )
+        else:
+            return '<span style="color: #ef4444;">❌ Unavailable</span>'
+    
+    def _store_file_in_database(self, file_name: str, file_size: int, uploaded_by: str):
         """Store file metadata in database"""
         try:
-            file_hash = self.get_file_hash(target_path)
             doc_data = {
                 "file_name": file_name,
-                "file_path": str(target_path.relative_to(self.common_knowledge_path)),
+                "file_path": f"s3://{s3_storage.bucket_name}/{s3_storage.common_prefix}{file_name}" if USE_S3_STORAGE else str(Path(file_name)),
                 "file_size": file_size,
-                "file_hash": file_hash,
+                "file_hash": "",  # Skip hash for now
                 "uploaded_by": uploaded_by,
-                "is_common_knowledge": True
+                "is_common_knowledge": True,
+                "storage_type": "s3" if USE_S3_STORAGE else "local"
             }
             self.supabase.table("common_knowledge_documents").insert(doc_data).execute()
         except Exception as db_error:
@@ -570,7 +663,6 @@ class EnhancedFileService:
             if is_common:
                 index_success, index_msg, chunks_count = rag_service.index_common_knowledge_document(file_name)
             else:
-                # For user files, would need user_email context
                 return 0
             
             if index_success:
@@ -601,172 +693,6 @@ class EnhancedFileService:
         except Exception as index_error:
             messages.append(f"⚠️ Indexing error: {file_name} - {str(index_error)}")
             return 0
-    
-    def _create_common_knowledge_file_row(self, file_path: Path) -> Optional[list]:
-        """Create a row for common knowledge files with Actions as last column"""
-        try:
-            from rag_service import rag_service
-
-            # File info
-            stat = file_path.stat()
-            file_size = stat.st_size
-            chunks_count = rag_service.get_file_chunks_count(file_path.name, is_common=True)
-            status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
-            upload_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
-
-            # Actions column with styling
-            file_url = f"/docs/{file_path.name}"
-            actions = (
-                f'<a href="{file_url}" target="_blank" style="color: #3b82f6; text-decoration: none; font-weight: 500;">👁 View</a> '
-                f'<span style="color: #6b7280;">|</span> '
-                f'<a href="{file_url}" download style="color: #059669; text-decoration: none; font-weight: 500;">💾 Download</a>'
-            )
-
-            # Uploader name
-            uploader_name = "System"
-            try:
-                if IS_PRODUCTION:
-                    result = self.supabase.table("common_knowledge_documents") \
-                        .select("uploaded_by") \
-                        .eq("file_name", file_path.name) \
-                        .execute()
-
-                    if result.data and result.data[0].get("uploaded_by"):
-                        uploader_email = result.data[0]["uploaded_by"]
-                        uploader_name = self.get_user_display_name(uploader_email)
-            except Exception as e:
-                print(f"Error getting uploader info: {e}")
-
-            # Return row with Actions as LAST column
-            return [
-                str(file_path.name),
-                str(self.format_file_size(file_size)),
-                str(self.get_file_type(file_path)),
-                str(chunks_count),
-                str(status),
-                str(upload_date),
-                str(uploader_name),
-                actions  # Actions moved to last
-            ]
-
-        except Exception as e:
-            print(f"Error reading local file {file_path}: {e}")
-            return None
-    
-    def _create_user_file_row(self, file_path: Path, user_email: str) -> Optional[List[Any]]:
-        """Create file row for user files with actions"""
-        try:
-            from rag_service import rag_service
-            
-            stat = file_path.stat()
-            file_size = stat.st_size
-            
-            # Get chunks count from user vector store
-            try:
-                vectorstore = rag_service.get_user_vectorstore(user_email)
-                collection = vectorstore._collection
-                existing_results = collection.get(where={"file_name": file_path.name})
-                chunks_count = len(existing_results['ids']) if existing_results and existing_results['ids'] else 0
-            except Exception as e:
-                chunks_count = 0
-            
-            status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
-            upload_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
-            
-            # Get actual user display name
-            user_display = self.get_user_display_name(user_email)
-            
-            # Add actions for user files
-            user_dir = user_email.replace("@", "_").replace(".", "_")
-            file_url = f"/user_docs/{user_dir}/{file_path.name}"
-            actions = (
-                f'<a href="{file_url}" target="_blank" style="color: #3b82f6; text-decoration: none; font-weight: 500;">👁 View</a> '
-                f'<span style="color: #6b7280;">|</span> '
-                f'<a href="{file_url}" download style="color: #059669; text-decoration: none; font-weight: 500;">💾 Download</a>'
-            )
-            
-            return [
-                file_path.name,
-                self.format_file_size(file_size),
-                self.get_file_type(file_path),
-                chunks_count,
-                status,
-                upload_date,
-                user_display,
-                actions  # Actions as last column
-            ]
-            
-        except Exception as e:
-            print(f"Error reading user file {file_path}: {e}")
-            return None
-        
-    def _get_cloud_common_knowledge_files(self, local_files: List[List[Any]], search_term: str) -> List[List[Any]]:
-        """Get cloud files with actions as last column"""
-        cloud_files = []
-        try:
-            result = self.supabase.table("common_knowledge_documents")\
-                .select("*")\
-                .order("uploaded_at", desc=True)\
-                .execute()
-            
-            local_file_names = {row[0] for row in local_files}
-            
-            if result.data:
-                for file_info in result.data:
-                    if file_info["file_name"] in local_file_names:
-                        continue
-                    
-                    chunks_count = file_info.get("chunks_count", 0)
-                    status = "✅ Indexed" if chunks_count > 0 else "⏳ Pending"
-                    
-                    # Get real uploader name
-                    uploader_email = file_info.get("uploaded_by", "system")
-                    uploader_name = uploader_email.split('@')[0].replace('.', ' ').title() if '@' in uploader_email else "System"
-                    
-                    # Actions with styling
-                    file_url = f"/docs/{file_info['file_name']}"
-                    actions = (
-                        f'<a href="{file_url}" target="_blank" style="color: #3b82f6; text-decoration: none; font-weight: 500;">👁 View</a> '
-                        f'<span style="color: #6b7280;">|</span> '
-                        f'<a href="{file_url}" download style="color: #059669; text-decoration: none; font-weight: 500;">💾 Download</a>'
-                    )
-                    
-                    file_row = [
-                        file_info["file_name"],
-                        self.format_file_size(file_info["file_size"]),
-                        self.get_file_type(Path(file_info["file_name"])),
-                        chunks_count,
-                        status,
-                        file_info["uploaded_at"][:10],
-                        uploader_name,
-                        actions  # Actions as last column
-                    ]
-                    
-                    if self._matches_search(file_row, search_term):
-                        cloud_files.append(file_row)
-                        
-        except Exception as e:
-            print(f"Error getting cloud files: {e}")
-        
-        return cloud_files
-    
-    def get_user_display_name(self, email: str) -> str:
-        """Get actual user display name from database"""
-        try:
-            if IS_PRODUCTION:
-                result = self.supabase.table("users")\
-                    .select("name")\
-                    .eq("email", email)\
-                    .execute()
-                
-                if result.data and result.data[0].get("name"):
-                    return result.data[0]["name"]
-            
-            # Fallback to formatted email
-            return email.split('@')[0].replace('.', ' ').replace('-', ' ').title()
-        except Exception as e:
-            print(f"Error getting user name: {e}")
-            return email.split('@')[0].replace('.', ' ').title()
     
     def _matches_search(self, file_row: List[Any], search_term: str) -> bool:
         """Check if file row matches search term"""

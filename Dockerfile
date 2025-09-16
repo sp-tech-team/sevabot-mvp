@@ -18,8 +18,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create directories for user data
+# Create directories for local storage (used for temp processing even with S3)
 RUN mkdir -p user_documents rag_index common_knowledge
+
+# Set environment variables with defaults (production values from constants.py)
+ENV USE_S3_STORAGE=true
+ENV AWS_REGION=ap-south-1
+ENV S3_BUCKET_NAME=sevabot-documents-prod
+ENV S3_COMMON_KNOWLEDGE_PREFIX=common_knowledge/
+ENV S3_USER_DOCUMENTS_PREFIX=user_documents/
 
 # Expose port
 EXPOSE 8001

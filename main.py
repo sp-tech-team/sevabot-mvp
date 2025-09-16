@@ -1,10 +1,10 @@
-# main.py - FastAPI application with RAG endpoints
+# main.py - FastAPI application with S3 storage support
 import warnings
 import os
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
@@ -20,8 +20,9 @@ except Exception as e:
     exit(1)
 
 from ui import create_ui
-from file_service import file_service
 from chat_service import chat_service
+from config import USE_S3_STORAGE, COMMON_KNOWLEDGE_PATH, RAG_DOCUMENTS_PATH
+from s3_storage import s3_storage
 
 # Import enhanced RAG service with router
 try:
@@ -34,34 +35,128 @@ except Exception as e:
 # API router for health checks and basic endpoints
 api_router = APIRouter(tags=["API"])
 
-
 @api_router.get("/health")
 async def health_check():
     """Health check endpoint"""
+    storage_type = "S3" if USE_S3_STORAGE else "Local"
     return {
         "status": "healthy",
         "service": "SEVABOT RAG Assistant",
-        "version": "2.0.0"
+        "version": "2.0.0",
+        "storage": storage_type
     }
-
 
 @api_router.get("/api/user-stats/{user_email}")
 async def get_user_stats(user_email: str):
     """Get user statistics"""
     try:
         conversations = chat_service.get_user_conversations(user_email)
-        files = file_service.list_user_files(user_email)
-        doc_count = rag_service.get_user_document_count(user_email)
+        
+        # Use enhanced_file_service which handles both S3 and local storage
+        from file_services import enhanced_file_service
+        user_files = enhanced_file_service.get_user_file_list(user_email)
+        files_count = len(user_files)
+        
+        # Get document count from vector store
+        try:
+            user_vectorstore = rag_service.get_user_vectorstore(user_email)
+            doc_count = user_vectorstore._collection.count()
+        except Exception:
+            doc_count = 0
 
         return {
             "conversations_count": len(conversations),
-            "files_count": len(files),
+            "files_count": files_count,
             "indexed_chunks": doc_count,
-            "user_email": user_email
+            "user_email": user_email,
+            "storage_type": "S3" if USE_S3_STORAGE else "Local"
         }
     except Exception as e:
         return {"error": str(e)}
 
+# File serving endpoints
+@api_router.get("/docs/{file_name}")
+async def serve_common_knowledge_file(file_name: str):
+    """Serve common knowledge files (S3 or local)"""
+    try:
+        if USE_S3_STORAGE:
+            # Generate presigned URL and redirect
+            file_url = s3_storage.get_common_knowledge_file_url(file_name, expires_in=3600)
+            if file_url:
+                return RedirectResponse(url=file_url)
+            else:
+                raise HTTPException(status_code=404, detail="File not found")
+        else:
+            # Serve local file
+            file_path = os.path.join(COMMON_KNOWLEDGE_PATH, file_name)
+            if not os.path.exists(file_path):
+                raise HTTPException(status_code=404, detail="File not found")
+            
+            # Determine content type
+            content_type = "application/octet-stream"
+            if file_name.lower().endswith('.pdf'):
+                content_type = "application/pdf"
+            elif file_name.lower().endswith('.txt'):
+                content_type = "text/plain"
+            elif file_name.lower().endswith('.md'):
+                content_type = "text/markdown"
+            elif file_name.lower().endswith('.docx'):
+                content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            
+            def iterfile(file_path: str):
+                with open(file_path, mode="rb") as file_like:
+                    yield from file_like
+            
+            return StreamingResponse(
+                iterfile(file_path),
+                media_type=content_type,
+                headers={"Content-Disposition": f"inline; filename={file_name}"}
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/user_docs/{user_dir}/{file_name}")
+async def serve_user_file(user_dir: str, file_name: str):
+    """Serve user files (S3 or local)"""
+    try:
+        # Convert user_dir back to email format
+        user_email = user_dir.replace("_", "@", 1).replace("_", ".")
+        
+        if USE_S3_STORAGE:
+            # Generate presigned URL and redirect
+            file_url = s3_storage.get_user_file_url(user_email, file_name, expires_in=3600)
+            if file_url:
+                return RedirectResponse(url=file_url)
+            else:
+                raise HTTPException(status_code=404, detail="File not found")
+        else:
+            # Serve local file
+            file_path = os.path.join(RAG_DOCUMENTS_PATH, user_dir, file_name)
+            if not os.path.exists(file_path):
+                raise HTTPException(status_code=404, detail="File not found")
+            
+            # Determine content type
+            content_type = "application/octet-stream"
+            if file_name.lower().endswith('.pdf'):
+                content_type = "application/pdf"
+            elif file_name.lower().endswith('.txt'):
+                content_type = "text/plain"
+            elif file_name.lower().endswith('.md'):
+                content_type = "text/markdown"
+            elif file_name.lower().endswith('.docx'):
+                content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            
+            def iterfile(file_path: str):
+                with open(file_path, mode="rb") as file_like:
+                    yield from file_like
+            
+            return StreamingResponse(
+                iterfile(file_path),
+                media_type=content_type,
+                headers={"Content-Disposition": f"inline; filename={file_name}"}
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # FastAPI app
 app = FastAPI(
@@ -87,20 +182,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount common knowledge files as static
-common_docs_path = os.getenv("COMMON_KNOWLEDGE_PATH", "/app/common_knowledge")
-app.mount(
-    "/docs",
-    StaticFiles(directory=common_docs_path),
-    name="docs"
-)
-
-user_docs_path = os.getenv("RAG_DOCUMENTS_PATH", "./user_documents")
-app.mount(
-    "/user_docs",
-    StaticFiles(directory=user_docs_path),
-    name="user_docs"
-)
+# Mount static files only for local storage
+if not USE_S3_STORAGE:
+    # Mount common knowledge files as static
+    app.mount(
+        "/docs",
+        StaticFiles(directory=COMMON_KNOWLEDGE_PATH),
+        name="docs"
+    )
+    
+    app.mount(
+        "/user_docs",
+        StaticFiles(directory=RAG_DOCUMENTS_PATH),
+        name="user_docs"
+    )
+# Add this line after your existing static mounts (around line 85-95)
+app.mount("/images", StaticFiles(directory="./images"), name="images")
 
 # Include routers
 app.include_router(auth_router, tags=["Authentication"])
@@ -115,10 +212,11 @@ create_ui(app)
 async def root():
     return RedirectResponse(url="/chat")
 
-
 @app.on_event("startup")
 async def startup_event():
+    storage_type = "S3" if USE_S3_STORAGE else "Local"
     print("🚀 Starting SEVABOT RAG Assistant...")
+    print(f"☁️ Storage Backend: {storage_type}")
     print("✅ Multi-user file management ready")
     print("✅ ChromaDB vector stores initialized")
     print("✅ Conversation management ready")
@@ -126,12 +224,10 @@ async def startup_event():
     print("✅ Vector database cleanup endpoints ready")
     print("🌐 Application ready for traffic")
 
-
 @app.on_event("shutdown")
 async def shutdown_event():
     print("🛑 Shutting down SEVABOT RAG Assistant...")
     print("✅ Shutdown complete")
-
 
 if __name__ == "__main__":
     uvicorn.run(

@@ -38,3 +38,5 @@ easyocr
 
 # Utilities
 requests
+boto3
+botocore

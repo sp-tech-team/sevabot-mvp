@@ -61,7 +61,10 @@ jobs:
         docker stop sevabot-container 2>/dev/null || true
         docker rm sevabot-container 2>/dev/null || true
         
-        # Run the container with environment variables
+        # Create backup directory for S3 migration (if needed)
+        sudo mkdir -p /home/ubuntu/sevabot_backup
+        
+        # Run the container with environment variables including S3 configuration
         docker run -d \
           --name sevabot-container \
           -p 8001:8001 \
@@ -77,10 +80,26 @@ jobs:
           -e REDIRECT_URI="${{ secrets.REDIRECT_URI }}" \
           -e APP_HOST="${{ secrets.APP_HOST }}" \
           -e ALLOWED_DOMAIN="${{ secrets.ALLOWED_DOMAIN }}" \
+          -e USE_S3_STORAGE=true \
+          -e AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
+          -e AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
           -v /home/ubuntu/sevabot_data/user_documents:/app/user_documents \
           -v /home/ubuntu/sevabot_data/rag_index:/app/rag_index \
           -v /home/ubuntu/sevabot_data/common_knowledge:/app/common_knowledge \
           $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        
+        # Wait for container to start
+        sleep 10
+        
+        # Check container health
+        if docker ps | grep -q sevabot-container; then
+          echo "Container started successfully"
+          docker logs sevabot-container --tail 20
+        else
+          echo "Container failed to start"
+          docker logs sevabot-container
+          exit 1
+        fi
         
         # Configure Nginx
         echo "Creating Nginx configuration..."
@@ -114,3 +133,8 @@ jobs:
         sudo rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
         sudo nginx -t
         sudo systemctl restart nginx
+        
+        echo "Deployment completed successfully!"
+        echo "S3 Storage: ENABLED"
+        echo "Container Status: $(docker inspect --format='{{.State.Status}}' sevabot-container)"
+        echo "Application URL: http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):8080"

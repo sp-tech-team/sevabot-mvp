@@ -1,4 +1,4 @@
-# constants.py - Application Constants with Role-Based Access and Common Knowledge Repository
+# constants.py - Application Constants with S3 Configuration
 
 # App Configuration - Development defaults (will be overridden by environment variables in production)
 DEFAULT_REDIRECT_URI = "http://localhost:8001/auth/callback"
@@ -14,10 +14,16 @@ ADMIN_EMAILS = [
 
 # SPOC Configuration - Single Point of Contact users
 SPOC_EMAILS = [
-    # 'swapnil.padhi-ext@sadhguru.org',
     'deepak-soni.ext@sadhguru.org',
     'ravi.kore-ext@sadhguru.org'
 ]
+
+# S3 Configuration (non-sensitive)
+DEFAULT_USE_S3_STORAGE = True  # Default to S3 in production
+DEFAULT_AWS_REGION = "ap-south-1"  # Your region
+DEFAULT_S3_BUCKET_NAME = "sevabot-documents-prod"
+DEFAULT_S3_COMMON_KNOWLEDGE_PREFIX = "common_knowledge/"
+DEFAULT_S3_USER_DOCUMENTS_PREFIX = "user_documents/"
 
 # RAG Configuration
 DEFAULT_RAG_DOCUMENTS_PATH = "./user_documents"

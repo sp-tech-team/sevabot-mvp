@@ -8,27 +8,15 @@ def get_isha_logo_svg():
     """Get enhanced Isha logo SVG for header"""
     return """
     <div style="display: flex; align-items: center;">
-        <svg width="300" height="65" viewBox="0 0 250 60">
-            <defs>
-                <linearGradient id="headerLogoGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
-                    <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
-                </linearGradient>
-            </defs>
-            <!-- White circle only behind Isha logo -->
-            <circle 
-                cx="30" cy="30" r="26" 
-                fill="white" 
-                stroke="url(#headerLogoGradient)" 
-                stroke-width="2"
-            />
-            <image x="12" y="12" width="36" height="36" href="https://isha.sadhguru.org/favicon.ico"/>
-            <!-- Sevabot text without background -->
-            <text x="70" y="38" font-family="'Google Sans', 'Product Sans', 'Roboto', system-ui, sans-serif" font-size="28" font-weight="700" fill="url(#headerLogoGradient)" letter-spacing="1.2px">Sevabot</text>
-            <circle cx="210" cy="25" r="3" fill="url(#headerLogoGradient)" opacity="0.8"/>
-            <circle cx="220" cy="30" r="2.5" fill="url(#headerLogoGradient)" opacity="0.6"/>
-            <circle cx="230" cy="35" r="2" fill="url(#headerLogoGradient)" opacity="0.7"/>
-        </svg>
+        <div style="display: flex; align-items: center; margin-right: 1rem;">
+            <img src="/images/isha-logo.png" alt="Isha Logo" width="48" height="48" style="margin-right: 0.75rem; border-radius: 50%;" />
+            <span style="font-family: 'Google Sans', 'Product Sans', 'Roboto', system-ui, sans-serif; font-size: 28px; font-weight: 700; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; letter-spacing: 1.2px;">Sevabot</span>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+            <div style="width: 6px; height: 6px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); opacity: 0.8;"></div>
+            <div style="width: 5px; height: 5px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); opacity: 0.6;"></div>
+            <div style="width: 4px; height: 4px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); opacity: 0.7;"></div>
+        </div>
     </div>
     """
 
@@ -48,16 +36,41 @@ def get_landing_page_html():
     </head>
     <body>
         <div class="login-container">
-            <div> 🙏 Namaskaram, Welcome to</div>
-            <h1 class="title">Isha Sevabot</h1>
             
-            <div style="margin: 2rem 0;">
-                <a href="/login" class="login-button">
-                    <img src="https://developers.google.com/identity/images/btn_google_signin_dark_normal_web.png" 
-                         alt="Sign in with Google" />
+            <!-- Welcome text -->
+            <!-- <div class="welcome-text">🙏 Namaskaram, Welcome to</div> -->
+            
+            <!-- Isha Logo (bigger, with spacing) -->
+            <div class="isha-logo">
+                <img src="/images/isha-logo-2.svg" alt="Isha Logo" width="100" height="100" />
+            </div>
+            
+            <!-- Sevabot title (closer to logo) -->
+            <h1 class="title">SEVABOT</h1>
+            
+            <!-- Google Sign-in -->
+            <div class="signin-section">
+                <a href="/login" class="login-button-link">
+                    <button class="gsi-material-button">
+                        <div class="gsi-material-button-state"></div>
+                        <div class="gsi-material-button-content-wrapper">
+                            <div class="gsi-material-button-icon">
+                                <!-- Correct Google “G” logo -->
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+                                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                                    <path fill="none" d="M0 0h48v48H0z"/>
+                                </svg>
+                            </div>
+                            <span class="gsi-material-button-contents">Sign in with Google</span>
+                        </div>
+                    </button>
                 </a>
             </div>
             
+            <!-- Access restriction text -->
             <div class="domain-info">
                 <strong>Access Restricted:</strong> Only whitelisted @sadhguru.org email addresses are permitted
             </div>
@@ -83,50 +96,153 @@ def get_landing_page_css():
             align-items: center;
             justify-content: center;
         }
+        
+        .welcome-text {
+            font-size: 1.1rem;
+            margin-bottom: 1.2rem;
+        }
+
+        .isha-logo {
+            margin-bottom: 0.8rem;
+        }
+
+        .title {
+            font-size: 3.125rem;
+            margin-top: 0.2rem;
+            margin-bottom: 2rem;
+            background: linear-gradient(135deg, #b8860b 0%, #cd853f 50%, #8b4513 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 700;
+            letter-spacing: 2px;
+        }
+
         .login-container {
             background: white;
-            border: 1px solid #e5e7eb;
+            border: 1px solid #ddd;    
             border-radius: 16px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.1);
             padding: 3rem 2.5rem;
             text-align: center;
             max-width: 400px;
             width: 90%;
         }
-        .title {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 2.5rem;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            letter-spacing: 2px;
-        }
-        .login-button {
-            display: inline-block;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-            border-radius: 8px;
-            overflow: hidden;
-            margin-bottom: 2rem;
-        }
-        .login-button:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
-        }
-        .login-button img {
-            border-radius: 8px;
-            max-width: 200px;
+
+        .isha-logo img {
+            filter: drop-shadow(0 2px 8px rgba(0,0,0,0.1));
+            max-width: 100%;
             height: auto;
         }
+
+        /* Google Sign-in Button Styles */
+        .signin-section {
+            margin: 2.5rem 0;
+            display: flex;
+            justify-content: center;
+        }
+        
+        .login-button-link {
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .gsi-material-button {
+            -moz-user-select: none;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            -webkit-appearance: none;
+            background-color: #f2f2f2;
+            border: none;
+            border-radius: 20px;
+            box-sizing: border-box;
+            color: #1f1f1f;
+            cursor: pointer;
+            font-family: 'Roboto', arial, sans-serif;
+            font-size: 14px;
+            height: 40px;
+            letter-spacing: 0.25px;
+            outline: none;
+            overflow: hidden;
+            padding: 0 12px;
+            position: relative;
+            text-align: center;
+            transition: background-color .218s, border-color .218s, box-shadow .218s;
+            vertical-align: middle;
+            white-space: nowrap;
+            width: auto;
+            max-width: 400px;
+            min-width: min-content;
+        }
+        
+        .gsi-material-button .gsi-material-button-icon {
+            height: 20px;
+            margin-right: 12px;
+            min-width: 20px;
+            width: 20px;
+        }
+        
+        .gsi-material-button .gsi-material-button-content-wrapper {
+            align-items: center;
+            display: flex;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            height: 100%;
+            justify-content: space-between;
+            position: relative;
+            width: 100%;
+        }
+        
+        .gsi-material-button .gsi-material-button-contents {
+            flex-grow: 1;
+            font-family: 'Roboto', arial, sans-serif;
+            font-weight: 500;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: top;
+        }
+        
+        .gsi-material-button .gsi-material-button-state {
+            transition: opacity .218s;
+            bottom: 0;
+            left: 0;
+            opacity: 0;
+            position: absolute;
+            right: 0;
+            top: 0;
+        }
+        
+        .gsi-material-button:not(:disabled):hover {
+            box-shadow: 0 1px 2px 0 rgba(60, 64, 67, .30), 0 1px 3px 1px rgba(60, 64, 67, .15);
+        }
+        
+        .gsi-material-button:not(:disabled):hover .gsi-material-button-state {
+            background-color: #001d35;
+            opacity: 8%;
+        }
+        
         .domain-info {
             margin-top: 2rem;
             padding: 1rem;
-            background: #f8f9fa;
+            background: #fdf6ef;              /* very light brown instead of grey */
             border-radius: 12px;
             font-size: 0.9rem;
             color: #6c757d;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #cd853f;  /* lighter brown (Peru) instead of dark */
+        }
+        
+        /* Mobile responsiveness */
+        @media (max-width: 480px) {
+            .login-container {
+                padding: 2rem 1.5rem;
+                margin: 1rem;
+            }
+            .title {
+                font-size: 2rem;
+            }
+            .isha-logo img {
+                width: 100px;
+                height: 100px;
+            }
         }
     """
 
@@ -186,73 +302,73 @@ def get_main_app_css():
         }
 
         /* ========== THEMED ACTION BUTTONS ========== */
-
-        /* Gradient buttons with glow */
-        .new-chat-btn {
-            background: linear-gradient(135deg, #f3e8ff, #d8b4fe) !important; /* soft lilac gradient */
-            color: #4c1d95 !important;  /* deep purple for contrast */
+ 
+        /* General reset */
+        .new-chat-btn,
+        .delete-chat-btn,
+        .refresh-chat-btn {
+            position: relative !important;
+            font-size: 1.3rem !important;   /* make emoji bigger */
+            color: black !important;        /* emoji/text color */
             border: none !important;
-            font-size: 1rem !important; /* make emoji bigger */
-            transition: all 0.3s ease !important;
+            border-radius: 12px !important;
+            transition: all 0.2s ease !important;
+        }
+
+        /* New Chat: Indigo */
+        .new-chat-btn {
+            background-color: #667eea !important;
         }
         .new-chat-btn:hover {
-            box-shadow: 0 4px 12px rgba(216, 180, 254, 0.6) !important;
-            transform: translateY(-1px) !important;
+            background-color: #5a67d8 !important;
         }
 
+        /* Delete Chat: Plum */
         .delete-chat-btn {
-            background: linear-gradient(135deg, #a855f7, #9333ea) !important;
-            color: white !important;
-            border: none !important;
-            transition: all 0.3s ease !important;
+            background-color: #a855f7 !important;
         }
         .delete-chat-btn:hover {
-            box-shadow: 0 4px 12px rgba(148, 51, 211, 0.5) !important;
-            transform: translateY(-1px) !important;
+            background-color: #9333ea !important;
         }
 
+        /* Refresh Chat: Deep Violet */
         .refresh-chat-btn {
-            background: linear-gradient(135deg, #6d28d9, #5b21b6) !important;
-            color: white !important;
-            border: none !important;
-            transition: all 0.3s ease !important;
+            background-color: #6d28d9 !important;
         }
         .refresh-chat-btn:hover {
-            box-shadow: 0 4px 12px rgba(109, 40, 217, 0.5) !important;
-            transform: translateY(-1px) !important;
+            background-color: #5b21b6 !important;
         }
 
-        /* ========== TOOLTIP FIX ========== */
+        /* === Tooltips above instead of below === */
         .new-chat-btn::after,
         .delete-chat-btn::after,
         .refresh-chat-btn::after {
-            position: absolute !important;
-            top: -1.8rem !important;   /* show above instead of below */
-            left: 50% !important;
-            transform: translateX(-50%) !important;
-            background: rgba(0,0,0,0.85) !important;
-            color: white !important;
-            padding: 0.25rem 0.5rem !important;
-            border-radius: 4px !important;
-            font-size: 0.75rem !important;
-            white-space: nowrap !important;
-            opacity: 0 !important;
-            pointer-events: none !important;
-            transition: opacity 0.2s !important;
-            z-index: 10000 !important;   /* float above radios */
+            position: absolute;
+            bottom: 100%;                  /* place above button */
+            left: 50%;
+            transform: translateX(-50%) translateY(-6px);
+            background: rgba(0,0,0,0.85);
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+            z-index: 10000;
         }
 
-        /* Individual tooltip labels */
         .new-chat-btn::after { content: "New Chat"; }
         .delete-chat-btn::after { content: "Delete Chat"; }
         .refresh-chat-btn::after { content: "Refresh"; }
 
-        /* Show on hover */
         .new-chat-btn:hover::after,
         .delete-chat-btn:hover::after,
         .refresh-chat-btn:hover::after {
-            opacity: 1 !important;
+            opacity: 1;
         }
+
 
         
         /* Chat messages spacing */
