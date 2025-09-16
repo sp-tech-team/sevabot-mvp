@@ -334,6 +334,18 @@ class EnhancedFileService:
     
     # ========== HELPER METHODS ==========
     
+    def _calculate_file_hash(self, file_path: str) -> str:
+        """Calculate MD5 hash of file"""
+        try:
+            hash_md5 = hashlib.md5()
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_md5.update(chunk)
+            return hash_md5.hexdigest()
+        except Exception as e:
+            print(f"Error calculating file hash: {e}")
+            return ""
+    
     def _extract_file_paths(self, files) -> List[str]:
         """Extract file paths from various input formats"""
         file_paths = []
@@ -368,7 +380,7 @@ class EnhancedFileService:
             if self._file_exists_in_common_knowledge(file_name):
                 return {"success": False, "chunks": 0, "messages": messages, "errors": [f"{file_name}: File already exists"]}
             
-            # Upload file to storage
+            # Upload file to storage FIRST
             if USE_S3_STORAGE:
                 success = s3_storage.upload_common_knowledge_file(file_path, file_name)
             else:
@@ -381,18 +393,35 @@ class EnhancedFileService:
             
             messages.append(f"✅ Uploaded: {file_name}")
             
-            # Store in database
+            # Store in database BEFORE indexing (so indexing can find it)
+            file_hash = self._calculate_file_hash(file_path)
             if IS_PRODUCTION:
-                self._store_file_in_database(file_name, file_size, uploaded_by)
+                try:
+                    doc_data = {
+                        "file_name": file_name,
+                        "file_path": f"s3://{s3_storage.bucket_name}/{s3_storage.common_prefix}{file_name}" if USE_S3_STORAGE else str(self.common_knowledge_path / file_name),
+                        "file_size": file_size,
+                        "file_hash": file_hash,
+                        "uploaded_by": uploaded_by,
+                        "is_common_knowledge": True,
+                        "storage_type": "s3" if USE_S3_STORAGE else "local",
+                        "chunks_count": 0,  # Will be updated after indexing
+                        "indexed_at": None  # Will be updated after indexing
+                    }
+                    self.supabase.table("common_knowledge_documents").insert(doc_data).execute()
+                    messages.append(f"📝 Database record created: {file_name}")
+                except Exception as db_error:
+                    print(f"Warning: Database insert failed for {file_name}: {db_error}")
             
-            # Index the file
-            chunks_count = self._index_file(file_name, messages, is_common=True)
+            # Now index the file
+            chunks_count = self._index_file(file_name, messages, is_common=True, uploaded_by=uploaded_by)
             
             return {"success": True, "chunks": chunks_count, "messages": messages, "errors": []}
             
         except Exception as e:
             return {"success": False, "chunks": 0, "messages": messages, "errors": [f"{file_name}: {str(e)}"]}
-    
+
+
     def _process_user_file_upload(self, user_email: str, file_path: str, current: int, total: int) -> Dict:
         """Process single user file upload"""
         if not file_path or not os.path.exists(file_path):
@@ -425,6 +454,27 @@ class EnhancedFileService:
             
             messages.append(f"✅ Uploaded: {file_name}")
             
+            # Store in database (for user documents too!)
+            if IS_PRODUCTION:
+                try:
+                    file_hash = self._calculate_file_hash(file_path)
+                    
+                    doc_data = {
+                        "user_email": user_email,  # Simplified - removed user_id redundancy
+                        "file_name": file_name,
+                        "file_path": f"s3://{s3_storage.bucket_name}/{s3_storage.get_user_s3_prefix(user_email)}{file_name}" if USE_S3_STORAGE else str(self.get_user_documents_path(user_email) / file_name),
+                        "file_size": file_size,
+                        "file_hash": file_hash,
+                        "uploaded_by": user_email,
+                        "storage_type": "s3" if USE_S3_STORAGE else "local",
+                        "chunks_count": 0,  # Will be updated after indexing
+                        "indexed_at": None  # Will be updated after indexing
+                    }
+                    self.supabase.table("user_documents").insert(doc_data).execute()
+                    messages.append(f"📝 Database record created: {file_name}")
+                except Exception as db_error:
+                    print(f"Warning: Database insert failed for user file {file_name}: {db_error}")
+            
             # Index the file
             chunks_count = self._index_user_file(user_email, file_name, messages)
             
@@ -432,6 +482,7 @@ class EnhancedFileService:
             
         except Exception as e:
             return {"success": False, "chunks": 0, "messages": messages, "errors": [f"{file_name}: {str(e)}"]}
+
     
     def _delete_common_knowledge_file(self, file_name: str) -> Tuple[bool, str]:
         """Delete single common knowledge file"""
@@ -655,7 +706,7 @@ class EnhancedFileService:
         except Exception as db_error:
             print(f"Warning: Database update failed for {file_name}: {db_error}")
     
-    def _index_file(self, file_name: str, messages: List[str], is_common: bool = True) -> int:
+    def _index_file(self, file_name: str, messages: List[str], is_common: bool = True, uploaded_by: str = None) -> int:
         """Index a file and return chunks count"""
         try:
             from rag_service import rag_service
@@ -667,6 +718,22 @@ class EnhancedFileService:
             
             if index_success:
                 messages.append(f"📚 Indexed: {file_name} ({chunks_count} chunks)")
+                
+                # Update database with indexing results
+                if IS_PRODUCTION and is_common:
+                    try:
+                        self.supabase.table("common_knowledge_documents")\
+                            .update({
+                                "chunks_count": chunks_count,
+                                "indexed_at": datetime.utcnow().isoformat()
+                            })\
+                            .eq("file_name", file_name)\
+                            .execute()
+                        messages.append(f"✅ Database updated with indexing results: {file_name}")
+                    except Exception as db_error:
+                        print(f"Warning: Database update failed for {file_name}: {db_error}")
+                        messages.append(f"⚠️ Database update failed: {file_name}")
+                
                 return chunks_count
             else:
                 messages.append(f"⚠️ Indexing failed: {file_name} - {index_msg}")
@@ -675,7 +742,7 @@ class EnhancedFileService:
         except Exception as index_error:
             messages.append(f"⚠️ Indexing error: {file_name} - {str(index_error)}")
             return 0
-    
+
     def _index_user_file(self, user_email: str, file_name: str, messages: List[str]) -> int:
         """Index a user file and return chunks count"""
         try:
@@ -685,6 +752,23 @@ class EnhancedFileService:
             
             if index_success:
                 messages.append(f"📚 Indexed: {file_name} ({chunks_count} chunks)")
+                
+                # Update database with indexing results for user documents too
+                if IS_PRODUCTION:
+                    try:
+                        self.supabase.table("user_documents")\
+                            .update({
+                                "chunks_count": chunks_count,
+                                "indexed_at": datetime.utcnow().isoformat()
+                            })\
+                            .eq("user_email", user_email)\
+                            .eq("file_name", file_name)\
+                            .execute()
+                        messages.append(f"✅ Database updated with indexing results: {file_name}")
+                    except Exception as db_error:
+                        print(f"Warning: Database update failed for user file {file_name}: {db_error}")
+                        messages.append(f"⚠️ Database update failed: {file_name}")
+                
                 return chunks_count
             else:
                 messages.append(f"⚠️ Indexing failed: {file_name} - {index_msg}")

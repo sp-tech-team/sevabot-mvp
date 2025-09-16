@@ -1,4 +1,4 @@
--- Updated Database Schema for SEVABOT
+-- Updated Database Schema for SEVABOT with S3 Support
 -- Run this in Supabase SQL editor
 
 -- 1. Email whitelist table (primary access control)
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 6. Common knowledge documents (only update in production)
+-- 6. Common knowledge documents (updated with S3 support)
 CREATE TABLE IF NOT EXISTS common_knowledge_documents (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     file_name TEXT NOT NULL UNIQUE,
@@ -62,7 +62,25 @@ CREATE TABLE IF NOT EXISTS common_knowledge_documents (
     uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     uploaded_by TEXT NOT NULL,
     indexed_at TIMESTAMP WITH TIME ZONE,
-    is_common_knowledge BOOLEAN DEFAULT true
+    is_common_knowledge BOOLEAN DEFAULT true,
+    storage_type TEXT DEFAULT 'local' CHECK (storage_type IN ('local', 's3'))
+);
+
+-- 7. User documents table (FIXED - removed redundancy)
+CREATE TABLE IF NOT EXISTS user_documents (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_email TEXT NOT NULL, -- This is the primary identifier for user
+    file_name TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    file_hash TEXT,
+    chunks_count INTEGER DEFAULT 0,
+    uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    uploaded_by TEXT NOT NULL,
+    indexed_at TIMESTAMP WITH TIME ZONE,
+    storage_type TEXT DEFAULT 'local' CHECK (storage_type IN ('local', 's3')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(user_email, file_name)  -- Changed from user_id to user_email
 );
 
 -- Create indexes for performance
@@ -74,6 +92,9 @@ CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_email_whitelist_email ON email_whitelist(email);
 CREATE INDEX IF NOT EXISTS idx_email_whitelist_active ON email_whitelist(is_active);
+CREATE INDEX IF NOT EXISTS idx_common_documents_storage ON common_knowledge_documents(storage_type);
+CREATE INDEX IF NOT EXISTS idx_user_documents_email ON user_documents(user_email); -- Changed from user_id
+CREATE INDEX IF NOT EXISTS idx_user_documents_storage ON user_documents(storage_type);
 
 -- Insert initial admin emails into whitelist
 INSERT INTO email_whitelist (email, added_by) VALUES 
@@ -88,6 +109,7 @@ ALTER TABLE spoc_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE common_knowledge_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_documents ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies first (ignore errors if they don't exist)
 DO $$ 
@@ -98,6 +120,7 @@ BEGIN
     DROP POLICY IF EXISTS "Service role can do everything" ON conversations;
     DROP POLICY IF EXISTS "Service role can do everything" ON messages;
     DROP POLICY IF EXISTS "Service role can do everything" ON common_knowledge_documents;
+    DROP POLICY IF EXISTS "Service role can do everything" ON user_documents;
 EXCEPTION WHEN OTHERS THEN
     NULL; -- Ignore any errors
 END $$;
@@ -109,3 +132,4 @@ CREATE POLICY "Service role can do everything" ON spoc_assignments FOR ALL USING
 CREATE POLICY "Service role can do everything" ON conversations FOR ALL USING (true);
 CREATE POLICY "Service role can do everything" ON messages FOR ALL USING (true);
 CREATE POLICY "Service role can do everything" ON common_knowledge_documents FOR ALL USING (true);
+CREATE POLICY "Service role can do everything" ON user_documents FOR ALL USING (true);

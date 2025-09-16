@@ -176,43 +176,68 @@ class RAGService:
     def index_common_knowledge_document(self, file_name: str) -> Tuple[bool, str, int]:
         """Index document in common knowledge repository"""
         try:
-            file_path = Path(COMMON_KNOWLEDGE_PATH) / file_name
+            from config import USE_S3_STORAGE, COMMON_KNOWLEDGE_PATH
+            from s3_storage import s3_storage
+            import tempfile
             
-            if not file_path.exists():
-                return False, f"File {file_name} not found", 0
+            # Determine file path based on storage type
+            if USE_S3_STORAGE:
+                # Download from S3 to temporary location for processing
+                with tempfile.NamedTemporaryFile(suffix=Path(file_name).suffix, delete=False) as temp_file:
+                    temp_path = temp_file.name
+                
+                success = s3_storage.download_common_knowledge_file(file_name, temp_path)
+                if not success:
+                    return False, f"Failed to download {file_name} from S3", 0
+                
+                file_path = temp_path
+            else:
+                # Local file
+                file_path = Path(COMMON_KNOWLEDGE_PATH) / file_name
+                if not file_path.exists():
+                    return False, f"File {file_name} not found", 0
             
-            docs, used_ocr = self.load_document(str(file_path))
-            
-            if used_ocr:
-                return False, f"{file_name} requires OCR processing which is not supported", 0
-            
-            if not docs:
-                return False, f"Could not extract content from {file_name}", 0
-            
-            vectorstore = self.get_common_knowledge_vectorstore()
-            collection = vectorstore._collection
-            
-            # Check if already indexed
-            existing_results = collection.get(where={"file_name": file_name})
-            if existing_results and existing_results['ids']:
-                existing_chunks = len(existing_results['ids'])
-                self._update_chunks_count(file_name, existing_chunks, is_common=True)
-                return True, f"{file_name} already indexed ({existing_chunks} chunks)", existing_chunks
-            
-            # Split into chunks
-            chunks = self._create_chunks(docs, file_name, is_common=True)
-            
-            if not chunks:
-                return False, f"No chunks created from {file_name}", 0
-            
-            # Index chunks in batches
-            success = self._index_chunks_batch(vectorstore, chunks)
-            if not success:
-                return False, f"Failed to index {file_name}", 0
-            
-            self._update_chunks_count(file_name, len(chunks), is_common=True)
-            
-            return True, f"Successfully indexed {file_name}", len(chunks)
+            try:
+                docs, used_ocr = self.load_document(str(file_path))
+                
+                if used_ocr:
+                    return False, f"{file_name} requires OCR processing which is not supported", 0
+                
+                if not docs:
+                    return False, f"Could not extract content from {file_name}", 0
+                
+                vectorstore = self.get_common_knowledge_vectorstore()
+                collection = vectorstore._collection
+                
+                # Check if already indexed
+                existing_results = collection.get(where={"file_name": file_name})
+                if existing_results and existing_results['ids']:
+                    existing_chunks = len(existing_results['ids'])
+                    self._update_chunks_count(file_name, existing_chunks, is_common=True)
+                    return True, f"{file_name} already indexed ({existing_chunks} chunks)", existing_chunks
+                
+                # Split into chunks
+                chunks = self._create_chunks(docs, file_name, is_common=True)
+                
+                if not chunks:
+                    return False, f"No chunks created from {file_name}", 0
+                
+                # Index chunks in batches
+                success = self._index_chunks_batch(vectorstore, chunks)
+                if not success:
+                    return False, f"Failed to index {file_name}", 0
+                
+                self._update_chunks_count(file_name, len(chunks), is_common=True)
+                
+                return True, f"Successfully indexed {file_name}", len(chunks)
+                
+            finally:
+                # Clean up temporary file if using S3
+                if USE_S3_STORAGE and 'temp_path' in locals() and os.path.exists(temp_path):
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
             
         except Exception as e:
             return False, f"Error indexing {file_name}: {str(e)}", 0
@@ -474,41 +499,66 @@ class RAGService:
     def index_user_document(self, user_email: str, file_name: str) -> Tuple[bool, str, int]:
         """Index document for specific user"""
         try:
-            user_docs_path = self._get_user_documents_path(user_email)
-            file_path = user_docs_path / file_name
+            from config import USE_S3_STORAGE, RAG_DOCUMENTS_PATH
+            from s3_storage import s3_storage
+            import tempfile
             
-            if not file_path.exists():
-                return False, f"File {file_name} not found for user {user_email}", 0
+            # Determine file path based on storage type
+            if USE_S3_STORAGE:
+                # Download from S3 to temporary location for processing
+                with tempfile.NamedTemporaryFile(suffix=Path(file_name).suffix, delete=False) as temp_file:
+                    temp_path = temp_file.name
+                
+                success = s3_storage.download_user_file(user_email, file_name, temp_path)
+                if not success:
+                    return False, f"Failed to download {file_name} from S3 for user {user_email}", 0
+                
+                file_path = temp_path
+            else:
+                # Local file
+                user_docs_path = self._get_user_documents_path(user_email)
+                file_path = user_docs_path / file_name
+                if not file_path.exists():
+                    return False, f"File {file_name} not found for user {user_email}", 0
             
-            docs, used_ocr = self.load_document(str(file_path))
-            
-            if used_ocr:
-                return False, f"{file_name} requires OCR processing which is not supported", 0
-            
-            if not docs:
-                return False, f"Could not extract content from {file_name}", 0
-            
-            vectorstore = self.get_user_vectorstore(user_email)
-            collection = vectorstore._collection
-            
-            # Check if already indexed
-            existing_results = collection.get(where={"file_name": file_name})
-            if existing_results and existing_results['ids']:
-                existing_chunks = len(existing_results['ids'])
-                return True, f"{file_name} already indexed ({existing_chunks} chunks)", existing_chunks
-            
-            # Split into chunks
-            chunks = self._create_chunks(docs, file_name, is_common=False, user_email=user_email)
-            
-            if not chunks:
-                return False, f"No chunks created from {file_name}", 0
-            
-            # Index chunks
-            success = self._index_chunks_batch(vectorstore, chunks)
-            if not success:
-                return False, f"Failed to index {file_name}", 0
-            
-            return True, f"Successfully indexed {file_name}", len(chunks)
+            try:
+                docs, used_ocr = self.load_document(str(file_path))
+                
+                if used_ocr:
+                    return False, f"{file_name} requires OCR processing which is not supported", 0
+                
+                if not docs:
+                    return False, f"Could not extract content from {file_name}", 0
+                
+                vectorstore = self.get_user_vectorstore(user_email)
+                collection = vectorstore._collection
+                
+                # Check if already indexed
+                existing_results = collection.get(where={"file_name": file_name})
+                if existing_results and existing_results['ids']:
+                    existing_chunks = len(existing_results['ids'])
+                    return True, f"{file_name} already indexed ({existing_chunks} chunks)", existing_chunks
+                
+                # Split into chunks
+                chunks = self._create_chunks(docs, file_name, is_common=False, user_email=user_email)
+                
+                if not chunks:
+                    return False, f"No chunks created from {file_name}", 0
+                
+                # Index chunks
+                success = self._index_chunks_batch(vectorstore, chunks)
+                if not success:
+                    return False, f"Failed to index {file_name}", 0
+                
+                return True, f"Successfully indexed {file_name}", len(chunks)
+                
+            finally:
+                # Clean up temporary file if using S3
+                if USE_S3_STORAGE and 'temp_path' in locals() and os.path.exists(temp_path):
+                    try:
+                        os.unlink(temp_path)
+                    except:
+                        pass
             
         except Exception as e:
             return False, f"Error indexing user document {file_name}: {str(e)}", 0
