@@ -460,7 +460,7 @@ def create_gradio_interface():
         """)
         
         # Hidden components for notifications
-        file_notification = gr.HTML("", visible=False)
+        file_notification = gr.HTML("")
         action_status = gr.Textbox(visible=False)
         
         # ========== EVENT HANDLERS ==========
@@ -979,20 +979,35 @@ def create_gradio_interface():
             """Create new chat only if no feedback is pending"""
             if pending_feedback_state:
                 notification = show_feedback_warning("creating a new chat")
-                # Keep showing current conversation with pending feedback
                 conversations = chat_service.get_user_conversations(ui_service.current_user["email"])
                 if conversations:
-                    has_pending, pending_msg_id, pending_conv_id = ui_service.check_pending_feedback()
+                    has_pending, _, pending_conv_id = ui_service.check_pending_feedback()
                     if has_pending and pending_conv_id:
                         history, conv_id, _ = ui_service.load_conversation_for_user(pending_conv_id, None)
                         return history, conv_id, gr.update(), "Please provide feedback first", True, notification, gr.update(interactive=False)
                 
                 return [], None, gr.update(), "Please provide feedback first", pending_feedback_state, notification, gr.update(interactive=False)
             
+            # Check session limit before creating new chat
+            from constants import MAX_SESSIONS_PER_USER, ERROR_MESSAGES
+            
+            user_email = target_user if target_user and ui_service.is_admin_or_spoc() else ui_service.current_user["email"]
+            existing_conversations = chat_service.get_user_conversations(user_email)
+            
+            if len(existing_conversations) >= MAX_SESSIONS_PER_USER:
+                # Return EMPTY notification first to clear the component
+                if existing_conversations:
+                    latest_conv_id = existing_conversations[0]["id"]
+                    history, conv_id, _ = ui_service.load_conversation_for_user(latest_conv_id, target_user)
+                    session_choices = [(conv["title"], conv["id"]) for conv in existing_conversations]
+                    # Return empty notification to force clear
+                    return history, conv_id, gr.update(choices=session_choices, value=conv_id), ERROR_MESSAGES["session_limit"], False, gr.update(value=""), gr.update(interactive=True)
+                return [], None, gr.update(), ERROR_MESSAGES["session_limit"], False, gr.update(value=""), gr.update(interactive=True)
+            
             result = ui_service.create_new_chat_for_user(target_user)
-            empty_notification = gr.update(value="", visible=False)
+            empty_notification = gr.update(value="")
             return result + (False, empty_notification, gr.update(interactive=True))
-        
+
         def safe_load_conversation(conversation_id, target_user, pending_feedback_state, current_conv_id):
             """Load conversation only if no feedback is pending"""
             if pending_feedback_state:
@@ -1014,9 +1029,22 @@ def create_gradio_interface():
             empty_notification = gr.update(value="", visible=False)
             return result + (empty_notification,)
         
+        def show_max_sessions_notification():
+            """Show notification after clearing"""
+            from constants import MAX_SESSIONS_PER_USER
+            return gr.update(value=f'<div class="notification">⚠️ Maximum {MAX_SESSIONS_PER_USER} sessions reached. Delete a conversation first.</div>')
+                
         # Session management
         # Update the new chat button binding to disable the button itself
-        new_chat_btn.click(fn=safe_new_chat, inputs=[selected_chat_user, pending_feedback], outputs=[chatbot, current_conversation_id, sessions_radio, action_status, pending_feedback, file_notification, new_chat_btn])
+        new_chat_btn.click(
+            fn=safe_new_chat, 
+            inputs=[selected_chat_user, pending_feedback], 
+            outputs=[chatbot, current_conversation_id, sessions_radio, action_status, pending_feedback, file_notification, new_chat_btn]
+        ).then(
+            fn=show_max_sessions_notification,
+            outputs=[file_notification]
+        )
+        
         delete_chat_btn.click(fn=safe_delete_conversation, inputs=[sessions_radio, selected_chat_user, pending_feedback], outputs=[chatbot, current_conversation_id, sessions_radio, action_status, file_notification])
 
         sessions_radio.change(fn=safe_load_conversation, inputs=[sessions_radio, selected_chat_user, pending_feedback, current_conversation_id], outputs=[chatbot, current_conversation_id, action_status, file_notification])

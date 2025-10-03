@@ -196,9 +196,17 @@ class S3StorageService:
         try:
             s3_key = f"{self.common_prefix}{file_name}"
             
+            # Determine content type for inline viewing
+            content_type = self._get_content_type(file_name)
+            
             url = self.s3_client.generate_presigned_url(
                 'get_object',
-                Params={'Bucket': self.bucket_name, 'Key': s3_key},
+                Params={
+                    'Bucket': self.bucket_name, 
+                    'Key': s3_key,
+                    'ResponseContentType': content_type,
+                    'ResponseContentDisposition': 'inline'  # Force inline viewing
+                },
                 ExpiresIn=expires_in
             )
             
@@ -348,9 +356,17 @@ class S3StorageService:
             user_prefix = self._get_user_s3_prefix(user_email)
             s3_key = f"{user_prefix}{file_name}"
             
+            # Determine content type for inline viewing
+            content_type = self._get_content_type(file_name)
+            
             url = self.s3_client.generate_presigned_url(
                 'get_object',
-                Params={'Bucket': self.bucket_name, 'Key': s3_key},
+                Params={
+                    'Bucket': self.bucket_name, 
+                    'Key': s3_key,
+                    'ResponseContentType': content_type,
+                    'ResponseContentDisposition': 'inline'  # Force inline viewing
+                },
                 ExpiresIn=expires_in
             )
             
@@ -444,6 +460,17 @@ class S3StorageService:
                 os.remove(file_path)
         except Exception as e:
             print(f"Warning: Could not clean up temp file {file_path}: {e}")
+
+    def _get_content_type(self, file_name: str) -> str:
+        """Get content type based on file extension"""
+        ext = file_name.lower().split('.')[-1]
+        content_types = {
+            'pdf': 'application/pdf',
+            'txt': 'text/plain',
+            'md': 'text/markdown',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        }
+        return content_types.get(ext, 'application/octet-stream')
 
 # Global S3 storage service instance
 s3_storage = S3StorageService()
