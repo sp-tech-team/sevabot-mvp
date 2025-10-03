@@ -188,32 +188,32 @@ class S3StorageService:
             print(f"❌ S3 list failed: {e}")
             return []
     
-    def get_common_knowledge_file_url(self, file_name: str, expires_in: int = 3600) -> Optional[str]:
+    def get_common_knowledge_file_url(self, file_name: str, expires_in: int = 3600, force_download: bool = False) -> Optional[str]:
         """Generate presigned URL for file access"""
         if not self.is_using_s3():
-            return f"/docs/{file_name}"  # Local file URL
+            return f"/docs/{file_name}{'?download=true' if force_download else ''}"
         
         try:
             s3_key = f"{self.common_prefix}{file_name}"
-            
-            # Determine content type for inline viewing
             content_type = self._get_content_type(file_name)
             
-            url = self.s3_client.generate_presigned_url(
-                'get_object',
-                Params={
-                    'Bucket': self.bucket_name, 
-                    'Key': s3_key,
-                    'ResponseContentType': content_type,
-                    'ResponseContentDisposition': 'inline'  # Force inline viewing
-                },
-                ExpiresIn=expires_in
-            )
+            params = {
+                'Bucket': self.bucket_name, 
+                'Key': s3_key,
+                'ResponseContentType': content_type,
+            }
             
+            # Only add disposition if force_download is True
+            if force_download:
+                params['ResponseContentDisposition'] = f'attachment; filename="{file_name}"'
+            else:
+                params['ResponseContentDisposition'] = 'inline'
+            
+            url = self.s3_client.generate_presigned_url('get_object', Params=params, ExpiresIn=expires_in)
             return url
             
         except Exception as e:
-            print(f"❌ Failed to generate presigned URL for {file_name}: {e}")
+            print(f"Failed to generate presigned URL for {file_name}: {e}")
             return None
     
     # ========== USER DOCUMENT OPERATIONS ==========
@@ -346,34 +346,34 @@ class S3StorageService:
             print(f"❌ S3 user file list failed for {user_email}: {e}")
             return []
     
-    def get_user_file_url(self, user_email: str, file_name: str, expires_in: int = 3600) -> Optional[str]:
+    def get_user_file_url(self, user_email: str, file_name: str, expires_in: int = 3600, force_download: bool = False) -> Optional[str]:
         """Generate presigned URL for user file access"""
         if not self.is_using_s3():
             user_dir = user_email.replace("@", "_").replace(".", "_")
-            return f"/user_docs/{user_dir}/{file_name}"  # Local file URL
+            return f"/user_docs/{user_dir}/{file_name}{'?download=true' if force_download else ''}"
         
         try:
             user_prefix = self._get_user_s3_prefix(user_email)
             s3_key = f"{user_prefix}{file_name}"
-            
-            # Determine content type for inline viewing
             content_type = self._get_content_type(file_name)
             
-            url = self.s3_client.generate_presigned_url(
-                'get_object',
-                Params={
-                    'Bucket': self.bucket_name, 
-                    'Key': s3_key,
-                    'ResponseContentType': content_type,
-                    'ResponseContentDisposition': 'inline'  # Force inline viewing
-                },
-                ExpiresIn=expires_in
-            )
+            params = {
+                'Bucket': self.bucket_name, 
+                'Key': s3_key,
+                'ResponseContentType': content_type,
+            }
             
+            # Only add disposition if force_download is True
+            if force_download:
+                params['ResponseContentDisposition'] = f'attachment; filename="{file_name}"'
+            else:
+                params['ResponseContentDisposition'] = 'inline'
+            
+            url = self.s3_client.generate_presigned_url('get_object', Params=params, ExpiresIn=expires_in)
             return url
             
         except Exception as e:
-            print(f"❌ Failed to generate presigned URL for user file {file_name}: {e}")
+            print(f"Failed to generate presigned URL for user file {file_name}: {e}")
             return None
     
     # ========== HELPER METHODS ==========

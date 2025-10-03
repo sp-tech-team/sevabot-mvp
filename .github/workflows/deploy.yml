@@ -50,6 +50,12 @@ jobs:
         # Create directories if they don't exist
         sudo mkdir -p /etc/nginx/sites-available
         sudo mkdir -p /etc/nginx/sites-enabled
+
+    - name: Create persistent directories
+      run: |
+        mkdir -p /home/ec2-user/sevabot/rag_index
+        mkdir -p /home/ec2-user/sevabot/user_documents
+        mkdir -p /home/ec2-user/sevabot/common_knowledge
         
     - name: Deploy Container
       env:

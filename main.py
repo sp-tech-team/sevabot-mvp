@@ -1,6 +1,7 @@
 # main.py - FastAPI application with S3 storage support
 import warnings
 import os
+from typing import Optional
 from fastapi import FastAPI, APIRouter, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -74,14 +75,19 @@ async def get_user_stats(user_email: str):
     except Exception as e:
         return {"error": str(e)}
 
-# File serving endpoints
+from typing import Optional
+
 @api_router.get("/docs/{file_name}")
-async def serve_common_knowledge_file(file_name: str):
+async def serve_common_knowledge_file(file_name: str, download: Optional[str] = None):
     """Serve common knowledge files (S3 or local)"""
     try:
+        # Convert string parameter to boolean
+        force_download = download == "true" if download else False
+        
+        print(f"DEBUG: download param={download}, force_download={force_download}, file_name={file_name}")
+        
         if USE_S3_STORAGE:
-            # Generate presigned URL and redirect
-            file_url = s3_storage.get_common_knowledge_file_url(file_name, expires_in=3600)
+            file_url = s3_storage.get_common_knowledge_file_url(file_name, expires_in=3600, force_download=force_download)
             if file_url:
                 return RedirectResponse(url=file_url)
             else:
@@ -90,8 +96,17 @@ async def serve_common_knowledge_file(file_name: str):
             # Serve local file
             file_path = os.path.join(COMMON_KNOWLEDGE_PATH, file_name)
             if not os.path.exists(file_path):
-                raise HTTPException(status_code=404, detail="File not found")
+                raise HTTPException(status_code=404, detail=f"File '{file_name}' not found in knowledge repository")
             
+            file_size = os.path.getsize(file_path)
+            MAX_SERVE_SIZE = 100 * 1024 * 1024  # 100MB limit for serving
+
+            if file_size > MAX_SERVE_SIZE:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File too large to serve directly ({file_size / (1024*1024):.1f}MB). Maximum: 100MB"
+                )
+
             # Determine content type
             content_type = "application/octet-stream"
             if file_name.lower().endswith('.pdf'):
@@ -103,6 +118,14 @@ async def serve_common_knowledge_file(file_name: str):
             elif file_name.lower().endswith('.docx'):
                 content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             
+            # Set disposition based on download parameter
+            if force_download:
+                disposition = f'attachment; filename="{file_name}"'
+            else:
+                disposition = "inline"
+            
+            print(f"DEBUG: disposition={disposition}, content_type={content_type}")
+            
             def iterfile(file_path: str):
                 with open(file_path, mode="rb") as file_like:
                     yield from file_like
@@ -110,32 +133,45 @@ async def serve_common_knowledge_file(file_name: str):
             return StreamingResponse(
                 iterfile(file_path),
                 media_type=content_type,
-                headers={"Content-Disposition": f"inline; filename={file_name}"}
+                headers={
+                    "Content-Disposition": disposition,
+                    "Content-Type": content_type
+                }
             )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/user_docs/{user_dir}/{file_name}")
-async def serve_user_file(user_dir: str, file_name: str):
+async def serve_user_file(user_dir: str, file_name: str, download: Optional[str] = None):
     """Serve user files (S3 or local)"""
     try:
-        # Convert user_dir back to email format
+        # Convert string parameter to boolean
+        force_download = download == "true" if download else False
+        
+        print(f"DEBUG: download param={download}, force_download={force_download}, file_name={file_name}")
+        
         user_email = user_dir.replace("_", "@", 1).replace("_", ".")
         
         if USE_S3_STORAGE:
-            # Generate presigned URL and redirect
-            file_url = s3_storage.get_user_file_url(user_email, file_name, expires_in=3600)
+            file_url = s3_storage.get_user_file_url(user_email, file_name, expires_in=3600, force_download=force_download)
             if file_url:
                 return RedirectResponse(url=file_url)
             else:
                 raise HTTPException(status_code=404, detail="File not found")
         else:
-            # Serve local file
             file_path = os.path.join(RAG_DOCUMENTS_PATH, user_dir, file_name)
             if not os.path.exists(file_path):
-                raise HTTPException(status_code=404, detail="File not found")
+                raise HTTPException(status_code=404, detail=f"File '{file_name}' not found in knowledge repository")
             
-            # Determine content type
+            file_size = os.path.getsize(file_path)
+            MAX_SERVE_SIZE = 100 * 1024 * 1024  # 100MB limit for serving
+
+            if file_size > MAX_SERVE_SIZE:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File too large to serve directly ({file_size / (1024*1024):.1f}MB). Maximum: 100MB"
+                )
+
             content_type = "application/octet-stream"
             if file_name.lower().endswith('.pdf'):
                 content_type = "application/pdf"
@@ -146,6 +182,14 @@ async def serve_user_file(user_dir: str, file_name: str):
             elif file_name.lower().endswith('.docx'):
                 content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             
+            # Set disposition based on download parameter
+            if force_download:
+                disposition = f'attachment; filename="{file_name}"'
+            else:
+                disposition = "inline"
+            
+            print(f"DEBUG: disposition={disposition}, content_type={content_type}")
+            
             def iterfile(file_path: str):
                 with open(file_path, mode="rb") as file_like:
                     yield from file_like
@@ -153,7 +197,10 @@ async def serve_user_file(user_dir: str, file_name: str):
             return StreamingResponse(
                 iterfile(file_path),
                 media_type=content_type,
-                headers={"Content-Disposition": f"inline; filename={file_name}"}
+                headers={
+                    "Content-Disposition": disposition,
+                    "Content-Type": content_type
+                }
             )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -182,21 +229,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files only for local storage
-if not USE_S3_STORAGE:
-    # Mount common knowledge files as static
-    app.mount(
-        "/docs",
-        StaticFiles(directory=COMMON_KNOWLEDGE_PATH),
-        name="docs"
-    )
-    
-    app.mount(
-        "/user_docs",
-        StaticFiles(directory=RAG_DOCUMENTS_PATH),
-        name="user_docs"
-    )
-# Add this line after your existing static mounts (around line 85-95)
 app.mount("/images", StaticFiles(directory="./images"), name="images")
 
 # Include routers

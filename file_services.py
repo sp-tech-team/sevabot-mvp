@@ -626,7 +626,7 @@ class EnhancedFileService:
 
             # Get file URL
             file_url = s3_storage.get_common_knowledge_file_url(file_name)
-            actions = self._create_file_actions(file_url)
+            actions = self._create_file_actions(file_name, is_common=True)
 
             # Get uploader name
             uploader_name = self.get_user_display_name(uploaded_by) if uploaded_by != "System" else "System"
@@ -676,7 +676,7 @@ class EnhancedFileService:
 
             upload_date = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d")
             file_url = f"/docs/{file_path.name}"
-            actions = self._create_file_actions(file_url)
+            actions = self._create_file_actions(file_path.name, is_common=True)
             
             # Get uploader display name
             uploader_name = self.get_user_display_name(uploaded_by) if uploaded_by != "System" else "System"
@@ -729,7 +729,7 @@ class EnhancedFileService:
             
             user_display = self.get_user_display_name(uploaded_by)
             file_url = s3_storage.get_user_file_url(user_email, file_name)
-            actions = self._create_file_actions(file_url)
+            actions = self._create_file_actions(file_name, is_common=False, user_email=user_email)
             
             return [file_name, self.format_file_size(file_size), self.get_file_type(Path(file_name)), 
                 chunks_count, status, upload_date, user_display, actions]
@@ -778,7 +778,7 @@ class EnhancedFileService:
             user_display = self.get_user_display_name(uploaded_by)
             user_dir = user_email.replace("@", "_").replace(".", "_")
             file_url = f"/user_docs/{user_dir}/{file_path.name}"
-            actions = self._create_file_actions(file_url)
+            actions = self._create_file_actions(file_path.name, is_common=False, user_email=user_email)
             
             return [file_path.name, self.format_file_size(file_size), self.get_file_type(file_path), 
                 chunks_count, status, upload_date, user_display, actions]
@@ -798,13 +798,33 @@ class EnhancedFileService:
         except Exception:
             return 0
     
-    def _create_file_actions(self, file_url: Optional[str]) -> str:
-        """Create actions HTML for file row"""
-        if file_url:
+    def _create_file_actions(self, file_name: str, is_common: bool = True, user_email: str = None) -> str:
+        """Create actions HTML for file row with separate view/download URLs"""
+        from s3_storage import s3_storage
+        from config import USE_S3_STORAGE
+        
+        if USE_S3_STORAGE:
+            if is_common:
+                view_url = s3_storage.get_common_knowledge_file_url(file_name, force_download=False)
+                download_url = s3_storage.get_common_knowledge_file_url(file_name, force_download=True)
+            else:
+                view_url = s3_storage.get_user_file_url(user_email, file_name, force_download=False)
+                download_url = s3_storage.get_user_file_url(user_email, file_name, force_download=True)
+        else:
+            # Local files - add download parameter to URL
+            if is_common:
+                view_url = f"/docs/{file_name}"
+                download_url = f"/docs/{file_name}?download=true"
+            else:
+                user_dir = user_email.replace("@", "_").replace(".", "_")
+                view_url = f"/user_docs/{user_dir}/{file_name}"
+                download_url = f"/user_docs/{user_dir}/{file_name}?download=true"
+        
+        if view_url and download_url:
             return (
-                f'<a href="{file_url}" target="_blank" style="color: #3b82f6; text-decoration: none; font-weight: 500;">👁 View</a> '
+                f'<a href="{view_url}" target="_blank" style="color: #3b82f6; text-decoration: none; font-weight: 500;">👁 View</a> '
                 f'<span style="color: #6b7280;">|</span> '
-                f'<a href="{file_url}" download style="color: #059669; text-decoration: none; font-weight: 500;">💾 Download</a>'
+                f'<a href="{download_url}" style="color: #059669; text-decoration: none; font-weight: 500;">💾 Download</a>'
             )
         else:
             return '<span style="color: #ef4444;">❌ Unavailable</span>'
