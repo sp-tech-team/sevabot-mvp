@@ -53,9 +53,9 @@ jobs:
 
     - name: Create persistent directories
       run: |
-        mkdir -p /home/ec2-user/sevabot/rag_index
-        mkdir -p /home/ec2-user/sevabot/user_documents
-        mkdir -p /home/ec2-user/sevabot/common_knowledge
+        mkdir -p /home/ubuntu/sevabot_data/rag_index
+        mkdir -p /home/ubuntu/sevabot_data/user_documents
+        mkdir -p /home/ubuntu/sevabot_data/common_knowledge
         
     - name: Deploy Container
       env:
