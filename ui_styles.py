@@ -449,32 +449,136 @@ def get_main_app_css():
             100% { opacity: 0; transform: translateX(100%); }
         }
         
-        /* Feedback buttons */
-        .feedback-btn { 
-            min-height: 2.5rem !important; 
-            padding: 0.625rem 1.25rem !important; 
-            font-size: 0.875rem !important;
+        /* Unified Feedback Container */
+        .feedback-container {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(147, 51, 234, 0.05) 100%) !important;
+            border: 1px solid rgba(59, 130, 246, 0.2) !important;
+            border-radius: 12px !important;
+            padding: 1.25rem !important;
+            margin: 1rem 0 !important;
+        }
+
+        .feedback-container .markdown {
+            margin-bottom: 0.75rem !important;
+            font-weight: 600 !important;
+            font-size: 1rem !important;
+            color: #1f2937 !important;
+        }
+
+        /* Radio Buttons - Hide all Gradio fieldset styling */
+        .feedback-radio-inline > div > div {
+            border: none !important;
+            background: transparent !important;
+            padding: 0 !important;
+        }
+
+        .feedback-radio-inline fieldset {
+            border: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+
+        .feedback-radio-inline legend {
+            display: none !important;
+        }
+
+        /* Remove any colored circles/dots from Gradio's radio wrapper */
+        .feedback-radio-inline .wrap::before,
+        .feedback-radio-inline > div::before {
+            display: none !important;
+        }
+
+        .feedback-radio-inline .wrap {
+            display: flex !important;
+            flex-direction: row !important;
+            gap: 1.5rem !important;
+            align-items: center !important;
+            margin-bottom: 1rem !important;
+            background: transparent !important;
+        }
+
+        .feedback-radio-inline input[type="radio"] {
+            appearance: auto !important;
+            -webkit-appearance: radio !important;
+            width: 1.25rem !important;
+            height: 1.25rem !important;
+            cursor: pointer !important;
+            margin-right: 0.5rem !important;
+        }
+
+        .feedback-radio-inline input[type="radio"][value="✅ Fully"] {
+            accent-color: #16a34a !important;
+        }
+        .feedback-radio-inline input[type="radio"][value="⚠️ Partially"] {
+            accent-color: #eab308 !important;
+        }
+        .feedback-radio-inline input[type="radio"][value="❌ Nopes"] {
+            accent-color: #dc2626 !important;
+        }
+
+        .feedback-radio-inline label {
             font-weight: 500 !important;
-            margin: 0.25rem !important;
-            border: 2px solid transparent !important;
+            font-size: 1rem !important;
+            color: #1f2937 !important;
+            cursor: pointer !important;
+            display: flex !important;
+            align-items: center !important;
         }
-        
-        .feedback-fully { 
-            background-color: rgba(34, 197, 94, 0.15) !important; 
-            color: #059669 !important;
-            border-color: rgba(34, 197, 94, 0.3) !important;
+
+        /* Textbox - Light background matching container */
+        .feedback-remarks {
+            background: transparent !important;
         }
-        .feedback-partially { 
-            background-color: rgba(245, 158, 11, 0.15) !important; 
-            color: #d97706 !important;
-            border-color: rgba(245, 158, 11, 0.3) !important;
+
+        .feedback-remarks textarea {
+            background: rgba(255, 255, 255, 0.8) !important;
+            border: 1px solid #d1d5db !important;
+            border-radius: 8px !important;
+            font-size: 0.95rem !important;
+            padding: 0.75rem !important;
+            resize: vertical !important;
+            color: #1f2937 !important;
+            min-height: 80px !important;
         }
-        .feedback-nopes { 
-            background-color: rgba(239, 68, 68, 0.15) !important; 
-            color: #dc2626 !important;
-            border-color: rgba(239, 68, 68, 0.3) !important;
+
+        .feedback-remarks textarea:focus {
+            background: white !important;
+            border-color: #3b82f6 !important;
+            outline: none !important;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
         }
-        
+
+        /* Submit Button - Force two lines */
+        .feedback-submit-btn {
+            display: flex !important;
+            align-items: stretch !important;
+        }
+
+        .feedback-submit-btn button {
+            width: 100% !important;
+            min-width: 110px !important;
+            max-width: 110px !important;
+            font-size: 0.9rem !important;
+            font-weight: 600 !important;
+            padding: 0.6rem 0.5rem !important;
+            border-radius: 8px !important;
+            white-space: normal !important;
+            background-color: #3b82f6 !important;
+            color: white !important;
+            border: none !important;
+            cursor: pointer !important;
+            line-height: 1.3 !important;
+            text-align: center !important;
+            word-wrap: break-word !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+
+        .feedback-submit-btn button:hover {
+            background-color: #2563eb !important;
+        }
+
         /* Section backgrounds */
         .admin-section, .files-section {
             background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%) !important;

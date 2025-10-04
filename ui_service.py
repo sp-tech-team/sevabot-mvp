@@ -119,11 +119,17 @@ class EnhancedUIService:
         )
     
     def load_initial_data(self) -> Tuple[str, gr.update]:
-        """Load initial data for UI"""
+        """Load initial data for UI with session limit check"""
         conversations = chat_service.get_user_conversations(self.current_user["email"])
         session_choices = [(conv["title"], conv["id"]) for conv in conversations]
+        
+        # If at max sessions, don't auto-create, just show existing
+        from constants import MAX_SESSIONS_PER_USER
+        if len(conversations) >= MAX_SESSIONS_PER_USER:
+            return "", gr.update(choices=session_choices, value=None)
+        
         return "", gr.update(choices=session_choices, value=None)
-    
+
     # ========== CHAT OPERATIONS ==========
     
     def send_message_for_user(self, message: str, history: List[Dict], conversation_id: Optional[str], target_user_email: str = None) -> Tuple[List[Dict], str, Optional[str], gr.update, str, gr.update, gr.update, Optional[str]]:
