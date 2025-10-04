@@ -58,9 +58,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 # RAG Configuration - Updated for S3 compatibility
 if USE_S3_STORAGE:
     # When using S3, these are temporary local paths for processing
-    RAG_DOCUMENTS_PATH = "/home/ubuntu/sevabot_data/user_documents"
-    COMMON_KNOWLEDGE_PATH = "/home/ubuntu/sevabot_data/common_knowledge"
-    RAG_INDEX_PATH = "/home/ubuntu/sevabot_data/rag_index"
+    RAG_DOCUMENTS_PATH = "/app/user_documents"
+    COMMON_KNOWLEDGE_PATH = "/app/common_knowledge"
+    RAG_INDEX_PATH = "/app/rag_index"
 else:
     # Local storage paths
     RAG_DOCUMENTS_PATH = os.getenv("RAG_DOCUMENTS_PATH", DEFAULT_RAG_DOCUMENTS_PATH).strip()
