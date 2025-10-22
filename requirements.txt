@@ -18,6 +18,7 @@ itsdangerous
 # AI and ML
 openai
 langchain
+langchain-core
 langchain-openai
 langchain-chroma
 langchain-community
