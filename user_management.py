@@ -30,8 +30,32 @@ class UserManagement:
     def add_email_to_whitelist(self, email: str, added_by: str) -> bool:
         """Add email to whitelist"""
         try:
+            email_lower = email.lower()
+            
+            # Check if email already exists (active or inactive)
+            existing = self.supabase.table("email_whitelist")\
+                .select("*")\
+                .eq("email", email_lower)\
+                .execute()
+            
+            if existing.data:
+                # Email exists - check if it's inactive
+                if not existing.data[0].get('is_active', True):
+                    # Reactivate it
+                    result = self.supabase.table("email_whitelist")\
+                        .update({"is_active": True, "added_by": added_by})\
+                        .eq("email", email_lower)\
+                        .execute()
+                    print(f"✅ Reactivated {email_lower}")
+                    return bool(result.data)
+                else:
+                    # Already active
+                    print(f"⚠️ Email {email_lower} already in whitelist")
+                    return False
+            
+            # New email - insert it
             email_data = {
-                "email": email.lower(),
+                "email": email_lower,
                 "added_by": added_by,
                 "is_active": True
             }
@@ -40,9 +64,10 @@ class UserManagement:
                 .insert(email_data)\
                 .execute()
             
+            print(f"✅ Added {email_lower} to whitelist")
             return bool(result.data)
         except Exception as e:
-            print(f"Error adding email to whitelist: {e}")
+            print(f"❌ Error adding email to whitelist: {e}")
             return False
     
     def remove_email_from_whitelist(self, email: str) -> bool:

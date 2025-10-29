@@ -75,7 +75,7 @@ def determine_user_role(email: str) -> str:
 def is_email_whitelisted(email: str) -> bool:
     """Check if email is in whitelist (for non-domain restriction)"""
     try:
-        result = admin_supabase.table("email_whitelist").select("email").eq("email", email.lower()).execute()
+        result = admin_supabase.table("email_whitelist").select("email").eq("email", email.lower()).eq("is_active", True).execute()
         return bool(result.data)
     except Exception:
         return False
@@ -200,10 +200,10 @@ async def create_session(payload: dict, response: Response):
         print(f"DEBUG: Processing user: {email}")
 
         # Enhanced access control: domain OR whitelist
-        domain_allowed = email.lower().endswith("@" + ALLOWED_DOMAIN.lower())
+        # domain_allowed = email.lower().endswith("@" + ALLOWED_DOMAIN.lower())
         whitelist_allowed = is_email_whitelisted(email)
         
-        if not (domain_allowed or whitelist_allowed):
+        if not (whitelist_allowed):
             print(f"ERROR: Access denied for {email} - not in domain or whitelist")
             try:
                 admin_supabase.auth.admin.delete_user(user_id)
