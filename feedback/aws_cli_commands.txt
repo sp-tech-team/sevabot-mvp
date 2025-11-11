@@ -1,8 +1,18 @@
+LekhanifullAccess
 (base) PS C:\Users\HP> aws configure
-AWS Access Key ID [****************6XFD]: 
-AWS Secret Access Key [****************GbDk]: 
+AWS Access Key ID [****************6XFD]: get it from slack in vcd-tech-ai-projects channel with search initials "AWS_ACCESS_KEY_ID=AKIA5"
+AWS Secret Access Key [****************GbDk]: get it from slack in vcd-tech-ai-projects channel with search initials "AWS_SECRET_ACCESS_KEY= i++rioj"
 Default region name [ap-south-1]: ap-south-1
 Default output format [json]: json
+
+
+SevabotFullAccess
+(base) PS C:\Users\HP> aws configure
+AWS Access Key ID [****************6XFD]: get it from slack in vcd-tech-ai-projects channel 
+AWS Secret Access Key [****************GbDk]: get it from slack in vcd-tech-ai-projects channel with search initials
+Default region name [ap-south-1]: ap-south-1
+Default output format [json]: json
+
 
 Connection was closed before we received a valid response from endpoint URL: "https://sts.ap-south-1.amazonaws.com/".
 (base) PS C:\Users\HP> setx AWS_CA_BUNDLE "C:\Users\HP\combined-ca.pem"
@@ -17,7 +27,6 @@ SUCCESS: Specified value was saved.
 }
 
 (base) PS C:\Users\HP> aws ec2 describe-instances --query "Reservations[*].Instances[*].[InstanceId,Tags[?Key=='Name']|[0].Value,PublicDnsName]" --output table
----------------------------------------------------------------------------------------
 |                                  DescribeInstances                                  |
 +----------------------+-------+------------------------------------------------------+
 |  i-0f1ffdb49f0553fb5 |  None |  ec2-13-233-157-26.ap-south-1.compute.amazonaws.com  |
@@ -69,3 +78,32 @@ Learn more about enabling ESM Apps service at https://ubuntu.com/esm
 
 Last login: Thu Sep 11 15:15:48 2025 from 47.247.113.51
 ubuntu@ip-172-31-13-108:~$ 
+
+
+----------------------
+
+That one’s simple ⚡ — here’s the exact command:
+
+aws ec2 start-instances --instance-ids i-0f1ffdb49f0553fb5
+
+✅ To check the state after starting:
+aws ec2 describe-instances --instance-ids i-0f1ffdb49f0553fb5 --query "Reservations[*].Instances[*].State.Name" --output text
+
+
+It’ll show pending → then running.
+
+💡 Pro tips:
+
+You can start multiple at once:
+
+aws ec2 start-instances --instance-ids i-abc123 i-def456
+
+
+To stop instead:
+
+aws ec2 stop-instances --instance-ids i-0f1ffdb49f0553fb5
+
+
+To reboot:
+
+aws ec2 reboot-instances --instance-ids i-0f1ffdb49f0553fb5

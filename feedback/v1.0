@@ -1,27 +1,30 @@
-some improvements to be made: 
+users:
+admins -> dept -> spocs ->  users
+admins - all access, spocs only assigned users
+while onboarding, 2 options : add as a SPOC, assign to a SPOC
 
-## must:
-3) ✅  the feedback doesnt get stored in the answers when switched to other chats and come back again to the original chat.
-4) ✅  uploading has some error with respect to some files like 1/2 mb. identify what's the exact issue.
-8) batch testing api endpoint with excel file upload option with questions and dummy answers. write an evaluation script to compare the answers.
-14) introduce logging folder for debugging, alongwith a few logs
-15) see how to adjust redirect-url/allowed domain/etc. in .env file, and if they are used.
+data backup for delete - introduce active/inactive flag for chat sessions - may  not be required later
 
-## UI:
-1) login page to have a central box, and the elements to be placed in the middle of window
-2) title still doesn't say "Welcome to Sevabot, Swapnil!", just Sevabot
-5) ✅  the window is not scrollable or within 100% window size. optimise the space to make it look like chatgpt, seamless box
-6) the chat/file manager and space between that and welcome title is too much. also chat/FM size is small, they should be atleast normal, mabye in button light format.
-10) change vvvv.supabase.co to Sevabot during google login
-12) mention file extensions that are allowed, and raise a warning if the extension is not allowed.
-13) upload/delete logs to be update file-wise, and not bulk logging.
+for spocs clarification to the user:
+- manually go through chats and reply if necessary, augmented answer with q/a reference
+- send notif to user for augmented answer
+- append the clarification in the same answer, send notif to notif tab. when user clicks on it, ideally it redirects to the same augmented answer.
 
-## Good to have:
-7) ✅ see if #sessions can be incrementally added without warning, and IF there's a warning.
-9) ✅ increase the conversational history loading speed for a session. Also why the sessions bar loads whenever an inferencing is happening?
+users:
+- general help feature for suggestions/improvements for the overall bot
+- general flag for good/bad like chatgpt
 
-## stretch:
-11) see if excel sheet can be uploaded
-16) ✅ there are 2 folders, rag-documents and user-documents. see if it happens again.
+migrate to vcd.tech.server@gmail.com google cloud
 
-3) the width is restored, but the chat window is quite small. in terms of height. do you think you can move chat and file manager tab buttons in the same section as left of chat which includes sessions history and new chat/delete buttons? this way you can increase the height of chat. Also move logout button in bottom right.   
+latency:
+chrono analysis
+request parallel processing to avoid queuing (check async/event-driven architecture)
+intelligent caching
+system prompt optimisation
+printing word by word
+infra tuning (eg. increasing memory, changing region from mum to us wrt to api)
+
+future:
+load balancing
+fine tuning answers using agentic AI (fine tuned model) for language
+excel/csv compatible
