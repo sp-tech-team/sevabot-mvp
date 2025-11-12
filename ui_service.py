@@ -774,7 +774,7 @@ class EnhancedUIService:
         try:
             from file_services import enhanced_file_service
             
-            files_list, status, choices = enhanced_file_service.upload_user_files(user_email, files)
+            files_list, status, choices = enhanced_file_service.upload_user_files(user_email, files, self.current_user["email"])
             
             success_count = status.count("✅")
             notification = f'<div class="notification">📤 Upload Complete: {success_count} files for user</div>'

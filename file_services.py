@@ -226,7 +226,7 @@ class EnhancedFileService:
         user_dir.mkdir(parents=True, exist_ok=True)
         return user_dir
     
-    def upload_user_files(self, user_email: str, files) -> Tuple[List[List[Any]], str, List[str]]:
+    def upload_user_files(self, user_email: str, files, uploaded_by: str = None) -> Tuple[List[List[Any]], str, List[str]]:
         """Upload files for specific user"""
         if not files or not user_email:
             return [], "No files selected or user not specified", []
@@ -234,6 +234,8 @@ class EnhancedFileService:
         file_paths = self._extract_file_paths(files)
         if not file_paths:
             return [], "No valid file paths found", []
+        # Use provided uploader or fall back to user_email
+        actual_uploader = uploaded_by if uploaded_by else user_email
 
         uploaded_count = 0
         total_chunks = 0
@@ -241,7 +243,7 @@ class EnhancedFileService:
         status_updates = []
 
         for i, file_path in enumerate(file_paths):
-            result = self._process_user_file_upload(user_email, file_path, i + 1, len(file_paths))
+            result = self._process_user_file_upload(user_email, file_path, actual_uploader, i + 1, len(file_paths))
             
             if result["success"]:
                 uploaded_count += 1
@@ -422,7 +424,7 @@ class EnhancedFileService:
             return {"success": False, "chunks": 0, "messages": messages, "errors": [f"{file_name}: {str(e)}"]}
 
 
-    def _process_user_file_upload(self, user_email: str, file_path: str, current: int, total: int) -> Dict:
+    def _process_user_file_upload(self, user_email: str, file_path: str, uploaded_by: str, current: int, total: int) -> Dict:
         """Process single user file upload"""
         if not file_path or not os.path.exists(file_path):
             return {"success": False, "chunks": 0, "messages": [], "errors": [f"File not found: {file_path}"]}
@@ -465,7 +467,7 @@ class EnhancedFileService:
                         "file_path": f"s3://{s3_storage.bucket_name}/{s3_storage._get_user_s3_prefix(user_email)}{file_name}" if USE_S3_STORAGE else str(self.get_user_documents_path(user_email) / file_name),
                         "file_size": file_size,
                         "file_hash": file_hash,
-                        "uploaded_by": user_email,
+                        "uploaded_by": uploaded_by,
                         "storage_type": "s3" if USE_S3_STORAGE else "local",
                         "chunks_count": 0,  # Will be updated after indexing
                         "indexed_at": None  # Will be updated after indexing
