@@ -6,6 +6,7 @@ from constants import MAX_SESSIONS_PER_USER, ERROR_MESSAGES, USER_ROLES
 from chat_service import chat_service
 from config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
 from supabase import create_client
+from user_management import user_management
 
 class EnhancedUIService:
     """Enhanced UI service with comprehensive file and vector operations"""
@@ -927,6 +928,52 @@ class EnhancedUIService:
         except Exception as e:
             print(f"Error searching user files: {e}")
             return [], []
+        
+    # ========== user management operations ==========
+    
+    def validate_email_with_feedback(self, email: str) -> str:
+        """Used by: whitelist_email_input.change()"""
+        if not email:
+            return ""
+        
+        try:
+            is_valid, message = user_management.validate_sadhguru_domain(email)
+            
+            if is_valid:
+                return '<span style="color: green;">✅ Valid domain</span>'
+            else:
+                return f'<span style="color: red;">❌ {message}</span>'
+        except Exception as e:
+            return f'<span style="color: red;">❌ Error: {str(e)}</span>'
+
+    def add_user_complete_workflow(self, email: str, department: str, assignment: str, spoc: str) -> str:
+        """Used internally by add_email_to_whitelist function below"""
+        try:
+            if not email or not department:
+                return '<div class="notification">❌ Email and department are required</div>'
+            
+            # Add to whitelist with department
+            success, message = user_management.add_email_to_whitelist(
+                email, self.current_user["email"], department
+            )
+            
+            if not success:
+                return f'<div class="notification">❌ {message}</div>'
+            
+            # Handle assignment
+            if assignment == "Add as SPOC":
+                user_management.promote_user_to_spoc(email)
+                return f'<div class="notification">✅ Added {email} as SPOC in {department}</div>'
+            elif assignment == "Assign to SPOC" and spoc:
+                user_management.add_spoc_assignment(spoc, email)
+                return f'<div class="notification">✅ Added {email} to {department} under SPOC {spoc}</div>'
+            else:
+                return f'<div class="notification">✅ Added {email} to {department} as regular user</div>'
+                
+        except Exception as e:
+            return f'<div class="notification">❌ Error: {str(e)}</div>'
+
+
 
 # Global UI service instance
 ui_service = EnhancedUIService()

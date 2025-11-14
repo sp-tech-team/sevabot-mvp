@@ -1,5 +1,5 @@
 # user_management.py - User management with email whitelist
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 from constants import USER_ROLES
 from config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
@@ -12,6 +12,18 @@ class UserManagement:
         self.supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     
     # ========== EMAIL WHITELIST MANAGEMENT ==========
+    
+    def validate_sadhguru_domain(self, email: str) -> tuple:
+        """Validate if email belongs to sadhguru.org domain"""
+        if not email or "@" not in email:
+            return False, "Invalid email format"
+        
+        email_lower = email.lower().strip()
+        
+        if not email_lower.endswith("@sadhguru.org"):
+            return False, "Only @sadhguru.org emails are allowed"
+        
+        return True, "Valid domain"
     
     def get_whitelisted_emails(self) -> List[Dict]:
         """Get all whitelisted emails"""
@@ -27,10 +39,15 @@ class UserManagement:
             print(f"Error getting whitelisted emails: {e}")
             return []
     
-    def add_email_to_whitelist(self, email: str, added_by: str) -> bool:
-        """Add email to whitelist"""
+    def add_email_to_whitelist(self, email: str, added_by: str, department: str = None) -> tuple:
+        """Add email to whitelist with department"""
         try:
-            email_lower = email.lower()
+            email_lower = email.lower().strip()
+            
+            # Validate domain first
+            is_valid, domain_message = self.validate_sadhguru_domain(email_lower)
+            if not is_valid:
+                return False, domain_message
             
             # Check if email already exists (active or inactive)
             existing = self.supabase.table("email_whitelist")\
@@ -42,16 +59,20 @@ class UserManagement:
                 # Email exists - check if it's inactive
                 if not existing.data[0].get('is_active', True):
                     # Reactivate it
+                    update_data = {"is_active": True, "added_by": added_by}
+                    if department:
+                        update_data["department"] = department
+                    
                     result = self.supabase.table("email_whitelist")\
-                        .update({"is_active": True, "added_by": added_by})\
+                        .update(update_data)\
                         .eq("email", email_lower)\
                         .execute()
                     print(f"✅ Reactivated {email_lower}")
-                    return bool(result.data)
+                    return bool(result.data), f"Successfully reactivated {email_lower}"
                 else:
                     # Already active
                     print(f"⚠️ Email {email_lower} already in whitelist")
-                    return False
+                    return False, f"Email {email_lower} is already in the whitelist"
             
             # New email - insert it
             email_data = {
@@ -60,15 +81,19 @@ class UserManagement:
                 "is_active": True
             }
             
+            if department:
+                email_data["department"] = department
+            
             result = self.supabase.table("email_whitelist")\
                 .insert(email_data)\
                 .execute()
             
             print(f"✅ Added {email_lower} to whitelist")
-            return bool(result.data)
+            return bool(result.data), f"Successfully added {email_lower} to whitelist"
         except Exception as e:
-            print(f"❌ Error adding email to whitelist: {e}")
-            return False
+            error_msg = f"Error adding email to whitelist: {str(e)}"
+            print(f"❌ {error_msg}")
+            return False, error_msg
     
     def remove_email_from_whitelist(self, email: str) -> bool:
         """Remove email from whitelist"""
@@ -100,7 +125,7 @@ class UserManagement:
     # ========== USER MANAGEMENT ==========
     
     def get_all_users(self) -> List[Dict]:
-        """Get all users"""
+        """Get all users with fresh data"""
         try:
             result = self.supabase.table("users")\
                 .select("email, name, role, last_login, created_at")\
@@ -113,9 +138,9 @@ class UserManagement:
             return []
     
     def get_users_by_role(self, role: str) -> List[List[str]]:
-        """Get users formatted for table display by role"""
+        """Get users formatted for table display by role - always fresh data"""
         try:
-            users = self.get_all_users()
+            users = self.get_all_users()  # Always get fresh data
             filtered_users = [user for user in users if user['role'] == role]
             
             # Format for table: [Name, Email, Last Login, Date Added]
@@ -146,10 +171,19 @@ class UserManagement:
             print(f"Error promoting user to SPOC: {e}")
             return False
     
-    def demote_spoc_to_user(self, spoc_email: str) -> bool:
-        """Demote a SPOC back to regular user"""
+    def demote_spoc_to_user(self, spoc_email: str, reassign_to_spoc: str = None) -> bool:
+        """Demote a SPOC back to regular user, optionally reassigning users to another SPOC"""
         try:
-            # Remove all SPOC assignments first
+            # Get assigned users
+            assigned_users = self.get_spoc_assignments(spoc_email)
+            
+            # If there are assigned users and a reassignment SPOC is provided
+            if assigned_users and reassign_to_spoc:
+                # Reassign all users to the new SPOC
+                for user_email in assigned_users:
+                    self.add_spoc_assignment(reassign_to_spoc, user_email)
+            
+            # Remove all old SPOC assignments
             self.supabase.table("spoc_assignments")\
                 .delete()\
                 .eq("spoc_email", spoc_email)\
@@ -165,6 +199,7 @@ class UserManagement:
         except Exception as e:
             print(f"Error demoting SPOC to user: {e}")
             return False
+
     
     # ========== SPOC ASSIGNMENTS ==========
     
@@ -284,8 +319,13 @@ class UserManagement:
             return []
     
     def get_assignable_users_for_spoc(self) -> List[Dict]:
-        """Get users that can be assigned to SPOCs (from whitelist, not just registered users)"""
+        """Get users that can be assigned to SPOCs (from whitelist, excluding already assigned)"""
         try:
+            # Get all assignments to exclude already assigned users
+            assigned_result = self.supabase.table("spoc_assignments")\
+                .select("assigned_user_email").execute()
+            assigned_emails = {item["assigned_user_email"] for item in assigned_result.data or []}
+            
             # Get all whitelisted emails
             whitelist = self.get_whitelisted_emails()
             
@@ -297,19 +337,50 @@ class UserManagement:
             assignable_users = []
             for email_record in whitelist:
                 email = email_record['email']
-                # Skip admin emails
-                if email in ['swapnil.padhi-ext@sadhguru.org', 'abhishek.kumar2019@sadhguru.org']:
-                    continue
-                
-                assignable_users.append({
-                    'email': email,
-                    'name': user_names.get(email, email.split('@')[0].replace('.', ' ').title()),
-                    'is_registered': email in user_names
-                })
+                # Skip admin emails and already assigned users
+                if (email not in assigned_emails and 
+                    email not in ['swapnil.padhi-ext@sadhguru.org', 'abhishek.kumar2019@sadhguru.org']):
+                    
+                    assignable_users.append({
+                        'email': email,
+                        'name': user_names.get(email, email.split('@')[0].replace('.', ' ').title()),
+                        'is_registered': email in user_names
+                    })
             
             return assignable_users
         except Exception as e:
             print(f"Error getting assignable users: {e}")
+            return []
+
+    def get_spoc_users(self) -> List[str]:
+        """Get list of SPOC users for dropdown"""
+        try:
+            spoc_users = [user for user in self.get_all_users() if user['role'] == 'spoc']
+            return [user['email'] for user in spoc_users]
+        except Exception as e:
+            print(f"Error getting SPOC users: {e}")
+            return []
+    
+    # ========== DEPARTMENT MANAGEMENT ==========
+    
+    def get_departments(self) -> List[str]:
+        """Get all unique departments from whitelist"""
+        try:
+            result = self.supabase.table("email_whitelist")\
+                .select("department")\
+                .eq("is_active", True)\
+                .execute()
+            
+            departments = set()
+            if result.data:
+                for item in result.data:
+                    dept = item.get('department')
+                    if dept and dept.strip():
+                        departments.add(dept.strip())
+            
+            return sorted(list(departments))
+        except Exception as e:
+            print(f"Error getting departments: {e}")
             return []
 
 # Global user management instance

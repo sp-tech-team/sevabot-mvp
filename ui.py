@@ -347,20 +347,54 @@ def create_gradio_interface():
                         with gr.Column():
                             gr.Markdown("#### Add Email to Whitelist")
                             whitelist_email_input = gr.Textbox(
-                                label="Email Address",
-                                placeholder="user@sadhguru.org",
+                            label="Email Address",
+                            placeholder="user@sadhguru.org",
+                            interactive=True
+                        )
+                            email_validation = gr.HTML("")
+
+                            with gr.Row():
+                                from user_management import user_management
+                                department_input = gr.Dropdown(
+                                    choices=[],  # Will be populated in load_admin_data
+                                    value="",
+                                    allow_custom_value=True,
+                                    label="Department",
+                                    interactive=True
+                                ) 
+
+                            with gr.Row():
+                                assignment_radio = gr.Radio(
+                                    label="Assignment Type",
+                                    choices=["Add as SPOC", "Assign to SPOC"],
+                                    value="Add as SPOC"
+                                )
+
+                            # Get available SPOCs for dropdown
+                            available_spocs = []
+                            try:
+                                from user_management import user_management
+                                users = user_management.get_all_users()
+                                available_spocs = [user['email'] for user in users if user.get('role') == 'spoc']
+                            except:
+                                available_spocs = []
+
+                            spoc_dropdown = gr.Dropdown(
+                                label="Assign to SPOC",
+                                choices=available_spocs,
+                                visible=False,
                                 interactive=True
                             )
-                            add_to_whitelist_btn = gr.Button("➕ Add to Whitelist", variant="primary")
-                        
+
+                            add_to_whitelist_btn = gr.Button("➕ Add User", variant="primary")
+
                         with gr.Column():
                             gr.Markdown("#### Current Whitelist")
                             whitelist_table = gr.Dataframe(
-                                label="Whitelisted Emails",
-                                headers=["Email", "Added By", "Date Added"],
-                                datatype=["str", "str", "str"],
-                                interactive=False,
-                                wrap=True
+                                headers=["Email", "Department", "Added By", "Date Added"],
+                                datatype=["str", "str", "str", "str"],
+                                label="Email Whitelist",
+                                interactive=False
                             )
                             
                             with gr.Row():
@@ -880,8 +914,11 @@ def create_gradio_interface():
                 
                 # Whitelist data
                 whitelist_data = user_management.get_whitelisted_emails()
-                whitelist_table_data = [[item["email"], item["added_by"], item["added_at"][:10]] for item in whitelist_data]
+                whitelist_table_data = [[item["email"], item.get("department", ""), item["added_by"], item["added_at"][:10]] for item in whitelist_data]
                 whitelist_choices = [item["email"] for item in whitelist_data]
+
+                departments_list = user_management.get_departments()
+                assignments_data = user_management.get_assignments_overview_table()
                 
                 return (
                     gr.update(value=files), gr.update(choices=choices, value=[]),
@@ -889,7 +926,9 @@ def create_gradio_interface():
                     gr.update(choices=assignable_choices), gr.update(choices=spoc_choices),
                     gr.update(choices=chat_user_choices), gr.update(choices=user_file_choices),
                     gr.update(value=admin_users_table), gr.update(value=whitelist_table_data),
-                    gr.update(choices=whitelist_choices)
+                    gr.update(choices=whitelist_choices),
+                    gr.update(choices=departments_list),        # ADD THIS
+                    gr.update(value=assignments_data)
                 )
             elif ui_service.is_spoc():
                 files = enhanced_file_service.get_common_knowledge_file_list()
@@ -898,9 +937,9 @@ def create_gradio_interface():
                 assigned_user_details = [user for user in users if user['email'] in assigned_users]
                 chat_user_choices = [(f"{user['name']} ({user['email']})", user['email']) for user in assigned_user_details]
                 
-                return tuple([gr.update(value=files)] + [gr.update()] * 6 + [gr.update(choices=chat_user_choices)] + [gr.update()] * 3)
+                return tuple([gr.update(value=files)] + [gr.update()] * 6 + [gr.update(choices=chat_user_choices)] + [gr.update()] * 4)
             
-            return tuple([gr.update()] * 11)
+            return tuple([gr.update()] * 12)
         
         demo.load(
             fn=load_admin_data,
@@ -908,7 +947,7 @@ def create_gradio_interface():
                 files_table, selected_files, role_management_dropdown,
                 spoc_email_dropdown, user_email_dropdown, current_spoc_dropdown,
                 chat_users_dropdown, user_file_users_dropdown, role_users_table,
-                whitelist_table, selected_whitelist_emails
+                whitelist_table, selected_whitelist_emails, department_input
             ]
         )
         
@@ -1201,22 +1240,44 @@ def create_gradio_interface():
         role_selection_dropdown.change(fn=lambda role: user_management.get_users_by_role(role) if ui_service.is_admin() and role else [], inputs=[role_selection_dropdown], outputs=[role_users_table])
         
         # Email whitelist management
-        def add_email_to_whitelist(email):
+        def add_email_to_whitelist(email: str, department: str, assignment: str, spoc: str):
+            """Used by: add_to_whitelist_btn.click()"""
             if ui_service.is_admin_or_spoc() and email:
-                success = user_management.add_email_to_whitelist(email, ui_service.current_user["email"])
-                if success:
+                notification = ui_service.add_user_complete_workflow(email, department, assignment, spoc)
+                
+                if "✅" in notification:  # Success - Refresh ALL data
                     whitelist_data = user_management.get_whitelisted_emails()
-                    table_data = [[item["email"], item["added_by"], item["added_at"][:10]] for item in whitelist_data]
+                    table_data = [[item["email"], item.get("department", ""), item["added_by"], item["added_at"][:10]] for item in whitelist_data]
                     choices = [item["email"] for item in whitelist_data]
-                    notification = '<div class="notification">✅ Email added to whitelist</div>'
-                    return gr.update(value=table_data), gr.update(choices=choices, value=[]), gr.update(value=""), gr.update(value=notification, visible=True)
-                else:
-                    notification = '<div class="notification">❌ Email already exists or error occurred</div>'
-                    return gr.update(), gr.update(), gr.update(), gr.update(value=notification, visible=True)
+                    
+                    # Refresh departments, users, and assignments
+                    departments_list = user_management.get_departments()
+                    all_users = user_management.get_all_users()
+                    all_user_choices = [(f"{user['name']} ({user['email']}) - {user['role'].upper()}", user['email']) for user in all_users]
+                    spoc_users = [user for user in all_users if user['role'] == 'spoc']
+                    spoc_choices = [(f"{user['name']} ({user['email']})", user['email']) for user in spoc_users]
+                    assignments_data = user_management.get_assignments_overview_table()
+                    
+                    return (
+                        gr.update(value=table_data),                    # whitelist_table
+                        gr.update(choices=choices, value=[]),           # selected_whitelist_emails  
+                        gr.update(value=""),                            # whitelist_email_input
+                        gr.update(value=notification, visible=True),   # file_notification
+                        gr.update(choices=departments_list),            # department_input
+                        gr.update(choices=all_user_choices),            # role_management_dropdown
+                        gr.update(choices=spoc_choices),                # spoc_email_dropdown
+                        gr.update(value=assignments_data)              # assignments_table
+                    )
+                else:  # Error
+                    return (gr.update(), gr.update(), gr.update(), 
+                            gr.update(value=notification, visible=True),
+                            gr.update(), gr.update(), gr.update(), gr.update())
             
             notification = '<div class="notification">❌ Access denied or invalid email</div>'
-            return gr.update(), gr.update(), gr.update(), gr.update(value=notification, visible=True)
-        
+            return (gr.update(), gr.update(), gr.update(), 
+                    gr.update(value=notification, visible=True),
+                    gr.update(), gr.update(), gr.update(), gr.update())
+
         def remove_from_whitelist(selected_emails):
             if ui_service.is_admin_or_spoc() and selected_emails:
                 removed_count = 0
@@ -1224,18 +1285,32 @@ def create_gradio_interface():
                     if user_management.remove_email_from_whitelist(email):
                         removed_count += 1
                 
+                # Refresh all data
                 whitelist_data = user_management.get_whitelisted_emails()
-                table_data = [[item["email"], item["added_by"], item["added_at"][:10]] for item in whitelist_data]
+                table_data = [[item["email"], item.get("department", ""), item["added_by"], item["added_at"][:10]] for item in whitelist_data]
                 choices = [item["email"] for item in whitelist_data]
+                departments_list = user_management.get_departments()
+                all_users = user_management.get_all_users()
+                all_user_choices = [(f"{user['name']} ({user['email']}) - {user['role'].upper()}", user['email']) for user in all_users]
+                
                 notification = f'<div class="notification">✅ Removed {removed_count} emails from whitelist</div>'
-                return gr.update(value=table_data), gr.update(choices=choices, value=[]), gr.update(value=notification, visible=True)
+                return (
+                    gr.update(value=table_data), 
+                    gr.update(choices=choices, value=[]), 
+                    gr.update(value=notification, visible=True),
+                    gr.update(choices=departments_list),
+                    gr.update(choices=all_user_choices)
+                )
             
             notification = '<div class="notification">❌ No emails selected or access denied</div>'
-            return gr.update(), gr.update(), gr.update(value=notification, visible=True)
+            return (gr.update(), gr.update(), gr.update(value=notification, visible=True), 
+                    gr.update(), gr.update())
         
-        add_to_whitelist_btn.click(fn=add_email_to_whitelist, inputs=[whitelist_email_input], outputs=[whitelist_table, selected_whitelist_emails, whitelist_email_input, file_notification])
-        remove_from_whitelist_btn.click(fn=remove_from_whitelist, inputs=[selected_whitelist_emails], outputs=[whitelist_table, selected_whitelist_emails, file_notification])
-        
+        whitelist_email_input.change(fn=lambda email: ui_service.validate_email_with_feedback(email), inputs=[whitelist_email_input], outputs=[email_validation])
+        assignment_radio.change(fn=lambda assignment: gr.update(visible=(assignment == "Assign to SPOC")), inputs=[assignment_radio], outputs=[spoc_dropdown])
+        add_to_whitelist_btn.click(fn=add_email_to_whitelist, inputs=[whitelist_email_input, department_input, assignment_radio, spoc_dropdown], outputs=[whitelist_table, selected_whitelist_emails, whitelist_email_input, file_notification, department_input, role_management_dropdown, spoc_email_dropdown, assignments_table])
+        remove_from_whitelist_btn.click(fn=remove_from_whitelist, inputs=[selected_whitelist_emails], outputs=[whitelist_table, selected_whitelist_emails, whitelist_email_input, file_notification, department_input, role_management_dropdown, spoc_email_dropdown, assignments_table])
+
         # SPOC assignments
         def load_spoc_assignments_for_dropdown(spoc_email):
             if not ui_service.is_admin() or not spoc_email:
