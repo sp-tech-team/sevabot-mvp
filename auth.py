@@ -52,22 +52,22 @@ ensure_spoc_assignments_table()
 ensure_email_whitelist_table()
 
 def determine_user_role(email: str) -> str:
-    """Determine user role based on email lists and database"""
+    """Determine user role from email_whitelist (single source of truth)"""
     email_lower = email.lower()
     
-    # Always check admin list from constants first
+    # Always check admin list from constants first (hardcoded admins)
     if email_lower in [admin.lower() for admin in ADMIN_EMAILS]:
         return USER_ROLES['admin']
     
-    # Check database for current role (for SPOCs promoted via UI)
+    # Check whitelist for current role (single source of truth)
     try:
-        result = admin_supabase.table("users").select("role").eq("email", email_lower).execute()
+        result = admin_supabase.table("email_whitelist").select("role").eq("email", email_lower).eq("is_active", True).execute()
         if result.data and len(result.data) > 0:
             db_role = result.data[0].get("role", "user")
             if db_role in USER_ROLES.values():
                 return db_role
     except Exception as e:
-        print(f"Error checking database role for {email}: {e}")
+        print(f"Error checking whitelist role for {email}: {e}")
     
     # Default to user
     return USER_ROLES['user']
