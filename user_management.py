@@ -188,7 +188,7 @@ class UserManagement:
                     'role': w.get('role', 'user'),
                     'last_login': user_data.get('last_login'),
                     'created_at': w.get('added_at') or user_data.get('created_at'),
-                    'department': w.get('department'),
+                    'department': w.get('department') or "",  # Empty string instead of None
                     'added_by': w.get('added_by')
                 })
             
@@ -762,7 +762,7 @@ class UserManagement:
             for item in whitelist:
                 email = item['email']
                 role = item.get('role', 'user')
-                department = item.get('department', 'N/A')
+                department = item.get('department') or ""  # Empty string instead of N/A
                 added_by = item.get('added_by', 'N/A')
                 added_at = item.get('added_at', '')
                 
