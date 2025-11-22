@@ -4,18 +4,34 @@ from fastapi.responses import RedirectResponse, JSONResponse, HTMLResponse
 from supabase import create_client, Client
 from config import (
     SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_ROLE_KEY,
-    REDIRECT_URI, COOKIE_SECRET, COOKIE_NAME, ALLOWED_DOMAIN
+    REDIRECT_URI, COOKIE_SECRET, COOKIE_NAME, ALLOWED_DOMAIN, IS_PRODUCTION
 )
 from constants import SESSION_MAX_AGE, SESSION_SALT, ADMIN_EMAILS, USER_ROLES
 from datetime import datetime
 import itsdangerous
 import secrets
+import ssl
+import urllib3
 
 router = APIRouter(tags=["Authentication"])
 
-# Initialize Supabase clients
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-admin_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+# Disable SSL warnings for local development (only if not in production)
+if not IS_PRODUCTION:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    print("⚠️  SSL verification disabled for local development")
+
+# Initialize Supabase clients with SSL verification options
+# For local development with corporate proxies, we may need to disable SSL verification
+client_options = {}
+if not IS_PRODUCTION:
+    # Disable SSL verification for local development
+    client_options = {
+        "verify": False  # This disables SSL certificate verification
+    }
+    print("⚠️  Supabase clients created with SSL verification disabled (local dev mode)")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=client_options)
+admin_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, options=client_options)
 
 # Cookie serializer
 serializer = itsdangerous.URLSafeSerializer(COOKIE_SECRET, salt=SESSION_SALT)

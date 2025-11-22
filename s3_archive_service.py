@@ -7,18 +7,16 @@ import json
 import boto3
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
-from supabase import create_client
 import os
 
 from config import (
-    SUPABASE_URL,
-    SUPABASE_SERVICE_ROLE_KEY,
     AWS_ACCESS_KEY_ID,
     AWS_SECRET_ACCESS_KEY,
     AWS_REGION,
     S3_BUCKET_NAME,
     USE_S3_STORAGE
 )
+from supabase_client import get_supabase_client
 
 
 class S3ArchiveService:
@@ -45,8 +43,8 @@ class S3ArchiveService:
         else:
             print("⚠️  S3 Archive Service disabled (missing credentials or USE_S3_STORAGE=false)")
 
-        # Initialize Supabase client
-        self.supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        # Initialize Supabase client with SSL handling
+        self.supabase = get_supabase_client(use_service_role=True)
 
     def is_enabled(self) -> bool:
         """Check if S3 archival is enabled"""

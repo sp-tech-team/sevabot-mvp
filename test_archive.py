@@ -12,8 +12,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from s3_archive_service import s3_archive_service
-from supabase import create_client
-from config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+from supabase_client import get_supabase_client
 
 
 def print_header(text):
@@ -55,7 +54,7 @@ def test_list_conversations():
     print_header("Test 2: List Conversations from Supabase")
 
     try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        supabase = get_supabase_client(use_service_role=True)
 
         # Get recent conversations
         result = supabase.table("conversations")\
