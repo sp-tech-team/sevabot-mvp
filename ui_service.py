@@ -85,7 +85,7 @@ class EnhancedUIService:
         
         # Section visibility within tabs
         admin_chat_section_visible = user_role in ["admin", "spoc"]
-        admin_upload_section_visible = user_role == "admin"
+        admin_upload_section_visible = user_role in ["admin", "spoc"]  # SPOCs can upload too
         reindex_visible = user_role == "admin"
         cleanup_visible = user_role == "admin"
         

@@ -233,6 +233,22 @@ class UserManagement:
             print(f"Error getting users by role simple: {e}")
             return []
     
+    def get_user_by_email(self, email: str) -> Optional[Dict]:
+        """Get a single user by email"""
+        try:
+            result = self.supabase.table("email_whitelist")\
+                .select("*")\
+                .eq("email", email.lower())\
+                .eq("is_active", True)\
+                .execute()
+            
+            if result.data and len(result.data) > 0:
+                return result.data[0]
+            return None
+        except Exception as e:
+            print(f"Error getting user by email: {e}")
+            return None
+    
     def format_user_for_dropdown(self, user: Dict) -> str:
         """Format user for dropdown display - prevents nested names"""
         email = user['email']
@@ -739,6 +755,19 @@ class UserManagement:
             return bool(result.data)
         except Exception as e:
             print(f"Error updating user role: {e}")
+            return False
+    
+    def update_user_department(self, email: str, department: str) -> bool:
+        """Update user's department in whitelist"""
+        try:
+            result = self.supabase.table("email_whitelist")\
+                .update({"department": department})\
+                .eq("email", email.lower())\
+                .execute()
+            
+            return bool(result.data)
+        except Exception as e:
+            print(f"Error updating user department: {e}")
             return False
     
     def remove_all_spoc_assignments_for_user(self, user_email: str) -> bool:
