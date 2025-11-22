@@ -12,6 +12,7 @@ import itsdangerous
 import secrets
 import ssl
 import urllib3
+import httpx
 
 router = APIRouter(tags=["Authentication"])
 
@@ -22,16 +23,21 @@ if not IS_PRODUCTION:
 
 # Initialize Supabase clients with SSL verification options
 # For local development with corporate proxies, we may need to disable SSL verification
-client_options = {}
 if not IS_PRODUCTION:
-    # Disable SSL verification for local development
-    client_options = {
-        "verify": False  # This disables SSL certificate verification
-    }
-    print("⚠️  Supabase clients created with SSL verification disabled (local dev mode)")
+    # Create custom httpx client with SSL verification disabled
+    http_client = httpx.Client(verify=False)
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    admin_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=client_options)
-admin_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, options=client_options)
+    # Monkey-patch the httpx clients to disable SSL verification
+    supabase.postgrest.session = http_client
+    admin_supabase.postgrest.session = http_client
+
+    print("⚠️  Supabase clients created with SSL verification disabled (local dev mode)")
+else:
+    # Production mode - use default SSL verification
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    admin_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 # Cookie serializer
 serializer = itsdangerous.URLSafeSerializer(COOKIE_SECRET, salt=SESSION_SALT)

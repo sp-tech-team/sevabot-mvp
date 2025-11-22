@@ -36,3 +36,4 @@ docx2txt
 # Utilities
 boto3
 botocore
+httpx

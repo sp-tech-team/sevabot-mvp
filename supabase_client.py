@@ -6,6 +6,7 @@ Centralized Supabase client creation with SSL verification handling for local de
 from supabase import create_client, Client
 from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_ROLE_KEY, IS_PRODUCTION
 import urllib3
+import httpx
 
 # Disable SSL warnings for local development
 if not IS_PRODUCTION:
@@ -24,13 +25,15 @@ def get_supabase_client(use_service_role: bool = False) -> Client:
     """
     key = SUPABASE_SERVICE_ROLE_KEY if use_service_role else SUPABASE_KEY
 
-    # Configure SSL verification based on environment
-    client_options = {}
-    if not IS_PRODUCTION:
-        # Disable SSL verification for local development (helps with corporate proxies)
-        client_options = {"verify": False}
+    # Create client
+    client = create_client(SUPABASE_URL, key)
 
-    return create_client(SUPABASE_URL, key, options=client_options)
+    # Disable SSL verification for local development (helps with corporate proxies)
+    if not IS_PRODUCTION:
+        http_client = httpx.Client(verify=False)
+        client.postgrest.session = http_client
+
+    return client
 
 
 # Pre-configured clients for convenience
