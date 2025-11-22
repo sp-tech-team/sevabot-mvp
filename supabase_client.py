@@ -31,7 +31,13 @@ def get_supabase_client(use_service_role: bool = False) -> Client:
     # Disable SSL verification for local development (helps with corporate proxies)
     if not IS_PRODUCTION:
         http_client = httpx.Client(verify=False)
+
+        # Patch postgrest session (for database operations)
         client.postgrest.session = http_client
+
+        # Patch auth client (for authentication operations)
+        if hasattr(client.auth, 'client'):
+            client.auth.client = http_client
 
     return client
 

@@ -30,8 +30,15 @@ if not IS_PRODUCTION:
     admin_supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
     # Monkey-patch the httpx clients to disable SSL verification
+    # Patch both postgrest (database) and auth (authentication) sessions
     supabase.postgrest.session = http_client
     admin_supabase.postgrest.session = http_client
+
+    # Also patch auth sessions (this is what's causing the SSL error)
+    if hasattr(supabase.auth, 'client'):
+        supabase.auth.client = http_client
+    if hasattr(admin_supabase.auth, 'client'):
+        admin_supabase.auth.client = http_client
 
     print("⚠️  Supabase clients created with SSL verification disabled (local dev mode)")
 else:
