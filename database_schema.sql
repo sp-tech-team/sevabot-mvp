@@ -1,13 +1,18 @@
 -- Updated Database Schema for SEVABOT with S3 Support
 -- Run this in Supabase SQL editor
 
--- 1. Email whitelist table (primary access control)
+-- Updated Database Schema for SEVABOT with S3 Support and Role in Email Whitelist
+-- Run this in Supabase SQL editor
+
+-- 1. Email whitelist table (primary access control with role)
 CREATE TABLE IF NOT EXISTS email_whitelist (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     email TEXT NOT NULL UNIQUE,
+    role TEXT DEFAULT 'user' CHECK (role IN ('admin', 'spoc', 'user')),
     added_by TEXT NOT NULL,
     added_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    is_active BOOLEAN DEFAULT true
+    is_active BOOLEAN DEFAULT true,
+    department TEXT
 );
 
 -- 2. Users table (only for users who have logged in)
@@ -83,6 +88,14 @@ CREATE TABLE IF NOT EXISTS user_documents (
     UNIQUE(user_email, file_name)  -- Changed from user_id to user_email
 );
 
+-- 8. Departments table for department management
+CREATE TABLE IF NOT EXISTS departments (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
@@ -92,14 +105,16 @@ CREATE INDEX IF NOT EXISTS idx_conversations_user ON conversations(user_id);
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_email_whitelist_email ON email_whitelist(email);
 CREATE INDEX IF NOT EXISTS idx_email_whitelist_active ON email_whitelist(is_active);
+CREATE INDEX IF NOT EXISTS idx_email_whitelist_role ON email_whitelist(role);
 CREATE INDEX IF NOT EXISTS idx_common_documents_storage ON common_knowledge_documents(storage_type);
 CREATE INDEX IF NOT EXISTS idx_user_documents_email ON user_documents(user_email); -- Changed from user_id
 CREATE INDEX IF NOT EXISTS idx_user_documents_storage ON user_documents(storage_type);
+CREATE INDEX IF NOT EXISTS idx_departments_name ON departments(name);
 
 -- Insert initial admin emails into whitelist
-INSERT INTO email_whitelist (email, added_by) VALUES 
-('swapnil.padhi-ext@sadhguru.org', 'system'),
-('abhishek.kumar2019@sadhguru.org', 'system')
+INSERT INTO email_whitelist (email, added_by, role) VALUES 
+('swapnil.padhi-ext@sadhguru.org', 'system', 'admin'),
+('abhishek.kumar2019@sadhguru.org', 'system', 'admin')
 ON CONFLICT (email) DO NOTHING;
 
 -- RLS (Row Level Security) policies
@@ -110,6 +125,7 @@ ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE common_knowledge_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE departments ENABLE ROW LEVEL SECURITY;
 
 -- Drop existing policies first (ignore errors if they don't exist)
 DO $$ 
@@ -121,6 +137,7 @@ BEGIN
     DROP POLICY IF EXISTS "Service role can do everything" ON messages;
     DROP POLICY IF EXISTS "Service role can do everything" ON common_knowledge_documents;
     DROP POLICY IF EXISTS "Service role can do everything" ON user_documents;
+    DROP POLICY IF EXISTS "Service role can do everything" ON departments;
 EXCEPTION WHEN OTHERS THEN
     NULL; -- Ignore any errors
 END $$;
@@ -133,3 +150,4 @@ CREATE POLICY "Service role can do everything" ON conversations FOR ALL USING (t
 CREATE POLICY "Service role can do everything" ON messages FOR ALL USING (true);
 CREATE POLICY "Service role can do everything" ON common_knowledge_documents FOR ALL USING (true);
 CREATE POLICY "Service role can do everything" ON user_documents FOR ALL USING (true);
+CREATE POLICY "Service role can do everything" ON departments FOR ALL USING (true);

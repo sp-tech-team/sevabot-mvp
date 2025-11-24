@@ -85,7 +85,7 @@ class EnhancedUIService:
         
         # Section visibility within tabs
         admin_chat_section_visible = user_role in ["admin", "spoc"]
-        admin_upload_section_visible = user_role == "admin"
+        admin_upload_section_visible = user_role in ["admin", "spoc"]  # SPOCs can upload too
         reindex_visible = user_role == "admin"
         cleanup_visible = user_role == "admin"
         
@@ -949,26 +949,35 @@ class EnhancedUIService:
     def add_user_complete_workflow(self, email: str, department: str, assignment: str, spoc: str) -> str:
         """Used internally by add_email_to_whitelist function below"""
         try:
-            if not email or not department:
-                return '<div class="notification">❌ Email and department are required</div>'
+            # Department required only for regular users
+            if assignment == "Add as User" and not department:
+                return '<div class="notification">❌ Department is required for regular users</div>'
             
-            # Add to whitelist with department
+            if not email:
+                return '<div class="notification">❌ Email is required</div>'
+            
+            # Add to whitelist with department (can be None for admin/spoc)
+            dept_value = department if department and department != "Select Department" else None
             success, message = user_management.add_email_to_whitelist(
-                email, self.current_user["email"], department
+                email, self.current_user["email"], dept_value
             )
             
             if not success:
                 return f'<div class="notification">❌ {message}</div>'
             
             # Handle assignment
-            if assignment == "Add as SPOC":
+            if assignment == "Add as Admin":
+                user_management.promote_user_to_spoc(email)  # First make SPOC
+                user_management.promote_spoc_to_admin(email)  # Then promote to Admin
+                return f'<div class="notification">✅ Added {email} as Admin</div>'
+            elif assignment == "Add as SPOC":
                 user_management.promote_user_to_spoc(email)
-                return f'<div class="notification">✅ Added {email} as SPOC in {department}</div>'
-            elif assignment == "Assign to SPOC" and spoc:
+                return f'<div class="notification">✅ Added {email} as SPOC</div>'
+            elif assignment == "Add as User" and spoc:
                 user_management.add_spoc_assignment(spoc, email)
-                return f'<div class="notification">✅ Added {email} to {department} under SPOC {spoc}</div>'
+                return f'<div class="notification">✅ Added {email} under SPOC {spoc}</div>'
             else:
-                return f'<div class="notification">✅ Added {email} to {department} as regular user</div>'
+                return f'<div class="notification">✅ Added {email} to whitelist</div>'
                 
         except Exception as e:
             return f'<div class="notification">❌ Error: {str(e)}</div>'
