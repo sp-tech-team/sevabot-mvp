@@ -128,21 +128,39 @@ class ChatService:
             return []
     
     def delete_conversation(self, conversation_id: str, user_email: str) -> bool:
-        """Delete conversation and all its messages"""
+        """
+        Delete conversation and all its messages
+        Archives to S3 before deletion if S3 archival is enabled
+        """
         try:
+            # Archive to S3 before deletion
+            from s3_archive_service import s3_archive_service
+
+            if s3_archive_service.is_enabled():
+                success, message = s3_archive_service.archive_to_s3(conversation_id, user_email)
+                if success:
+                    print(f"✅ {message}")
+                else:
+                    print(f"⚠️  Archive failed but continuing with deletion: {message}")
+            else:
+                print("⚠️  S3 archival disabled - deleting without backup")
+
+            # Delete messages (note: CASCADE in schema will auto-delete, but explicit is clearer)
             self.supabase.table("messages")\
                 .delete()\
                 .eq("conversation_id", conversation_id)\
                 .execute()
-            
+
+            # Delete conversation
             result = self.supabase.table("conversations")\
                 .delete()\
                 .eq("id", conversation_id)\
                 .eq("user_id", user_email)\
                 .execute()
-            
+
+            print(f"✅ Deleted conversation {conversation_id} from Supabase")
             return True
-            
+
         except Exception as e:
             print(f"Error deleting conversation: {e}")
             return False

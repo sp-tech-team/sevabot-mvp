@@ -24,6 +24,7 @@ DEFAULT_AWS_REGION = "ap-south-1"  # Your region
 DEFAULT_S3_BUCKET_NAME = "sevabot-documents-prod"
 DEFAULT_S3_COMMON_KNOWLEDGE_PREFIX = "common_knowledge/"
 DEFAULT_S3_USER_DOCUMENTS_PREFIX = "user_documents/"
+DEFAULT_S3_ARCHIVED_CONVERSATIONS_PREFIX = "archived_conversations/"  # For deleted conversation backups
 
 # RAG Configuration
 DEFAULT_RAG_DOCUMENTS_PATH = "./user_documents"
