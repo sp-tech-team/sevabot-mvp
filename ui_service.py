@@ -279,26 +279,7 @@ class EnhancedUIService:
                 elif msg["role"] == "assistant" and user_msg:
                     assistant_content = msg["content"]
                     
-                    # Add feedback if exists (your existing logic)
-                    if msg.get("feedback"):
-                        feedback_data = str(msg["feedback"]).strip()
-                        if feedback_data and feedback_data != "None":
-                            if ":" in feedback_data:
-                                feedback_parts = feedback_data.split(":", 1)
-                                feedback_type = feedback_parts[0].strip().lower()
-                                remarks = feedback_parts[1].strip() if len(feedback_parts) > 1 else ""
-                            else:
-                                feedback_type = feedback_data.lower()
-                                remarks = ""
-                            
-                            feedback_emoji = {"fully": "✅", "partially": "⚠️", "nopes": "❌"}
-                            emoji = feedback_emoji.get(feedback_type, "")
-                            feedback_display = f"{emoji} {feedback_type.title()}"
-                            
-                            if remarks:
-                                feedback_display += f" - {remarks}"
-                            
-                            assistant_content += f"\n\n*[Feedback: {feedback_display}]*"
+                    # Feedback and clarifications handled in UI layer via load_conversation_with_clarifications
                     
                     gradio_history.extend([
                         {"role": "user", "content": user_msg},

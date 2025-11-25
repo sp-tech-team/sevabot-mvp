@@ -615,4 +615,52 @@ def get_main_app_css():
             .gradio-container { padding: 0.25rem !important; }
             .sevabot-logo svg { width: 12rem !important; height: 3rem !important; }
         }
+        
+        /* Enhanced styling for in-place clarification editing */
+        .clarification-text {
+            border: 2px solid #e5e7eb !important;
+            transition: border-color 0.3s ease !important;
+        }
+
+        .clarification-text:focus {
+            border-color: #6366f1 !important;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1) !important;
+        }
+
+        /* Edit buttons styling */
+        .clarification-edit-buttons {
+            margin-top: 0.5rem !important;
+            padding: 0.5rem !important;
+            background: #f8fafc !important;
+            border-radius: 0.5rem !important;
+            border: 1px solid #e2e8f0 !important;
+        }
+
+        /* Enhanced notification styles */
+        .notification {
+            padding: 12px 16px !important;
+            border-radius: 8px !important;
+            margin: 8px 0 !important;
+            background: #10b981 !important;
+            color: white !important;
+            font-weight: 500 !important;
+            border: none !important;
+            animation: fadeIn 0.3s ease-in !important;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Table row hover effects for better selection */
+        .dataframe tbody tr:hover {
+            background-color: #f1f5f9 !important;
+            cursor: pointer !important;
+        }
+
+        .dataframe tbody tr.selected {
+            background-color: #dbeafe !important;
+            border-left: 4px solid #3b82f6 !important;
+        }
     """

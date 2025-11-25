@@ -8,6 +8,7 @@ from ui_service import ui_service
 from user_management import user_management
 from file_services import enhanced_file_service
 from chat_service import chat_service
+from review_clarification_service import review_clarification_service
 from constants import USER_ROLES
 
 from ui_styles import (get_favicon_link, get_isha_logo_svg, get_landing_page_html, get_main_app_css)
@@ -593,6 +594,125 @@ def create_gradio_interface():
                                 column_widths=["15%", "30%", "10%", "20%", "12%", "13%"]
                             )
         
+
+            # Review & Clarification Tab
+            # Review & Clarification Tab - Completely Restructured (Single Tab, No Subtabs)
+            with gr.TabItem("📝 Review & Clarification", visible=False) as review_clarification_tab:
+                # No title needed
+                
+                # Admin/SPOC section
+                with gr.Column(visible=False) as review_admin_spoc_section:
+                    with gr.Row():
+                        review_status_filter = gr.Dropdown(
+                            label="Clarification Status",
+                            choices=["All", "Pending Reviews", "Clarified"],
+                            value="All",
+                            interactive=True,
+                            scale=1
+                        )
+                        review_user_dropdown = gr.Dropdown(
+                            label="Select User",
+                            choices=[],
+                            interactive=True,
+                            filterable=True,
+                            scale=2
+                        )
+                        review_session_dropdown = gr.Dropdown(
+                            label="Select Session (Optional)",
+                            choices=[],
+                            interactive=True,
+                            filterable=True,
+                            scale=2
+                        )
+                
+                # User section for regular users
+                with gr.Column(visible=False) as review_user_section:
+                    with gr.Row():
+                        user_review_session_dropdown = gr.Dropdown(
+                            label="Select Session with Clarifications",
+                            choices=[],
+                            interactive=True,
+                            scale=4
+                        )
+                        refresh_user_review_btn = gr.Button("🔄 Refresh", variant="secondary", scale=1)
+                
+                # Q&A Table
+                qa_table = gr.Dataframe(
+                    headers=["Question", "Answer", "Feedback", "Has Clarification", "Clarified By", "Clarified At"],
+                    datatype=["str", "str", "str", "str", "str", "str"],
+                    label="Q&A Pairs (Click row to view details)",
+                    interactive=False,
+                    row_count=8,
+                    wrap=True,
+                    column_widths=["25%", "25%", "18%", "12%", "10%", "10%"]
+                )
+                
+                # Side-by-side layout: Details + SPOC Clarification on left, Chat Conversation on right
+                with gr.Row():
+                    # Left column: Details and SPOC Clarification
+                    with gr.Column(scale=1):
+                        gr.Markdown("### Details & SPOC Clarification")
+                        
+                        selected_question_display = gr.Textbox(
+                            label="Question", 
+                            lines=3, 
+                            interactive=False,
+                            show_copy_button=True
+                        )
+                        selected_answer_display = gr.Textbox(
+                            label="Answer", 
+                            lines=5, 
+                            interactive=False,
+                            show_copy_button=True
+                        )
+                        selected_feedback_display = gr.Textbox(
+                            label="Feedback", 
+                            lines=2, 
+                            interactive=False
+                        )
+                        
+                        # SPOC Clarification section
+                        selected_clarification_display = gr.Textbox(
+                            label="SPOC Clarification", 
+                            lines=5,
+                            max_lines=5,
+                            interactive=True,
+                            placeholder="Click 'Edit Clarification' to add or modify clarification...",
+                            elem_classes=["clarification-text"]
+                        )
+                        
+                        with gr.Row(visible=False) as clarification_edit_buttons:
+                            save_clarification_btn = gr.Button("💾 Save", variant="primary", scale=1)
+                            remove_clarification_btn = gr.Button("🗑️ Remove", variant="secondary", scale=1) 
+                            cancel_clarification_btn = gr.Button("✖️ Cancel", variant="stop", scale=1)
+                        
+                        select_qa_btn = gr.Button("✏️ Edit Clarification", variant="primary", visible=False)
+                    
+                    # Right column: Chat Conversation
+                    with gr.Column(scale=1):
+                        gr.Markdown("### Full Conversation")
+                        review_conversation_chatbot = gr.Chatbot(
+                            label="", 
+                            height=600, 
+                            type="messages",
+                            show_copy_button=True
+                        )
+                
+                # State variables
+                selected_qa_data = gr.State([])
+                selected_row_index = gr.State(None)
+                selected_qa_ids = gr.State([])
+                selected_message_id = gr.State(None)
+                selected_qa_index = gr.State(None)
+                selected_conversation_id = gr.State(None)
+                
+                review_notification = gr.HTML("")
+            
+            
+            # New tab for clarified Q&As with chat links
+
+        
+        
         # Copyright footer
         gr.HTML("""
         <div style="text-align: center; color: #9ca3af; font-size: 0.875rem; margin-top: 20px; padding: 15px;">
@@ -860,12 +980,16 @@ def create_gradio_interface():
             file_manager_common_visible = user_role in ["admin", "spoc"]
             file_manager_users_visible = user_role == "admin"
             users_tab_visible = user_role == "admin"
+            review_clarification_tab_visible = True
             
             # Section visibility within tabs
             admin_chat_section_visible = user_role in ["admin", "spoc"]
             admin_upload_section_visible = user_role in ["admin", "spoc"]  # SPOCs can upload/delete
             reindex_visible = user_role in ["admin", "spoc"]
             cleanup_visible = user_role in ["admin", "spoc"]
+            review_clarification_tab_visible = user_role in ["admin", "spoc", "user"]
+            review_admin_spoc_section_visible = user_role in ["admin", "spoc"]
+            review_user_section_visible = user_role == "user"
             
             # User file manager button visibility
             user_reindex_visible = user_role == "admin"
@@ -900,7 +1024,10 @@ def create_gradio_interface():
                 gr.update(elem_classes=container_class),
                 gr.update(value=default_chat_user),
                 gr.update(visible=user_reindex_visible),
-                gr.update(visible=user_cleanup_visible)
+                gr.update(visible=user_cleanup_visible),
+                gr.update(visible=review_clarification_tab_visible),
+                gr.update(visible=review_admin_spoc_section_visible),
+                gr.update(visible=review_user_section_visible)
             )
 
         # Load initial data
@@ -911,7 +1038,8 @@ def create_gradio_interface():
                 file_manager_users_tab, users_tab, admin_chat_user_section,
                 admin_upload_section, reindex_btn, cleanup_btn,
                 file_manager_title, file_manager_guidelines, file_manager_container,
-                chat_users_dropdown, user_reindex_btn, user_cleanup_btn
+                chat_users_dropdown, user_reindex_btn, user_cleanup_btn,
+                review_clarification_tab, review_admin_spoc_section, review_user_section
             ]
         )
 
@@ -974,6 +1102,24 @@ def create_gradio_interface():
                     // Clean up URL
                     window.history.replaceState({}, document.title, window.location.pathname);
                 }
+                
+                // Auto-fade notifications
+                setInterval(() => {
+                    const notifications = document.querySelectorAll('.notification');
+                    notifications.forEach(notif => {
+                        if (!notif.dataset.fadeStarted && notif.textContent.trim()) {
+                            notif.dataset.fadeStarted = 'true';
+                            setTimeout(() => {
+                                notif.style.transition = 'opacity 0.5s';
+                                notif.style.opacity = '0';
+                                setTimeout(() => {
+                                    notif.innerHTML = '';
+                                    notif.style.opacity = '1';
+                                }, 500);
+                            }, 3000);
+                        }
+                    });
+                }, 500);
             }
             """
         )
@@ -1067,9 +1213,9 @@ def create_gradio_interface():
                 assigned_user_details = [user for user in users if user['email'] in assigned_users]
                 chat_user_choices = [(user_management.format_user_for_dropdown(user), user['email']) for user in assigned_user_details]
                 
-                return tuple([gr.update(value=files), gr.update(choices=file_choices, value=[])] + [gr.update()] + [gr.update(choices=chat_user_choices)] + [gr.update()] * 14)
+                return tuple([gr.update(value=files), gr.update(choices=file_choices, value=[])] + [gr.update()] + [gr.update(choices=chat_user_choices)] + [gr.update()] * 15)
             
-            return tuple([gr.update()] * 18)
+            return tuple([gr.update()] * 19)
         
         demo.load(
             fn=load_admin_data,
@@ -1143,7 +1289,7 @@ def create_gradio_interface():
             # Block sending if feedback is pending
             if pending_feedback_state:
                 notification = '<div class="notification" style="background: #f59e0b !important;">⚠️ Please provide feedback before sending a new message</div>'
-                return history, "", conversation_id, gr.update(), "", gr.update(interactive=False), gr.update(visible=True), None, True, gr.update(interactive=False), gr.update(interactive=False), notification
+                return history, "", conversation_id, gr.update(value=conversation_id), "", gr.update(interactive=False), gr.update(visible=True), None, True, gr.update(interactive=False, value=conversation_id), gr.update(interactive=False), notification
             
             result = ui_service.send_message_for_user(message, history, conversation_id, target_user)
             return result + (gr.update(interactive=False), gr.update(interactive=False), gr.update(interactive=False), gr.update(value="", visible=False))
@@ -1225,6 +1371,78 @@ def create_gradio_interface():
             empty_notification = gr.update(value="", visible=False)
             return result + (False, empty_notification, gr.update(interactive=True))
 
+
+        def load_conversation_with_clarifications(conversation_id, target_user):
+            """Load conversation and append clarifications"""
+            result = ui_service.load_conversation_for_user(conversation_id, target_user)
+            history = result[0] if result else []
+            
+            if not history or not conversation_id:
+                return result
+            
+            try:
+                # Get messages with clarifications and feedback from database
+                messages = review_clarification_service.get_conversation_messages_with_clarifications(conversation_id)
+                print(f"DEBUG: Found {len(messages)} messages for conversation {conversation_id}")
+                
+                # Build enhanced history by inserting feedback and clarifications after each assistant message
+                enhanced_history = []
+                message_idx = 0
+                
+                for item in history:
+                    enhanced_history.append(item)
+                    
+                    # For each assistant message, check if there's feedback or clarification
+                    if item.get("role") == "assistant" and message_idx < len(messages):
+                        # Find corresponding database message (skip user messages in DB)
+                        while message_idx < len(messages) and messages[message_idx].get("role") != "assistant":
+                            message_idx += 1
+                        
+                        if message_idx < len(messages):
+                            db_msg = messages[message_idx]
+                            feedback = db_msg.get("feedback", "")
+                            clarification = db_msg.get("clarification_text", "")
+                            
+                            print(f"DEBUG: Message {message_idx} - feedback: '{feedback}', clarification: {bool(clarification)}")
+                            
+                            # Append feedback if exists and not "No feedback"
+                            if feedback and feedback.lower() not in ["no feedback", "", "none"]:
+                                feedback_display = feedback
+                                if ":" in feedback:
+                                    feedback_type, remarks = feedback.split(":", 1)
+                                    feedback_display = f"**{feedback_type.title()}** - {remarks}"
+                                else:
+                                    feedback_display = f"**{feedback.title()}**"
+                                
+                                enhanced_history.append({
+                                    "role": "assistant",
+                                    "content": f"📊 **User Feedback:** {feedback_display}"
+                                })
+                            
+                            # Append clarification if exists
+                            if clarification:
+                                clarified_by = db_msg.get("clarified_by", "SPOC")
+                                clarified_by_name = clarified_by.split('@')[0].replace('.', ' ').title() if '@' in clarified_by else clarified_by
+                                
+                                enhanced_history.append({
+                                    "role": "assistant", 
+                                    "content": f"📝 **SPOC Clarification** (by {clarified_by_name}):\n\n{clarification}"
+                                })
+                            
+                            message_idx += 1
+                
+                print(f"DEBUG: Original history length: {len(history)}, Enhanced history length: {len(enhanced_history)}")
+                
+                # Return enhanced history with the original tuple structure
+                return (enhanced_history, result[1], result[2]) if len(result) >= 3 else (enhanced_history,)
+                
+            except Exception as e:
+                print(f"ERROR in load_conversation_with_clarifications: {e}")
+                import traceback
+                traceback.print_exc()
+                # Return original result on error
+                return result if result else ([], None, "")
+
         def safe_load_conversation(conversation_id, target_user, pending_feedback_state, current_conv_id):
             """Load conversation only if no feedback is pending"""
             if pending_feedback_state:
@@ -1232,7 +1450,7 @@ def create_gradio_interface():
                 # Return current conversation ID to prevent switching
                 return [], current_conv_id, "Please provide feedback first", notification
             
-            result = ui_service.load_conversation_for_user(conversation_id, target_user)
+            result = load_conversation_with_clarifications(conversation_id, target_user)
             empty_notification = gr.update(value="", visible=False)
             return result + (empty_notification,)
 
@@ -2173,6 +2391,430 @@ def create_gradio_interface():
         whitelist_subtab.select(fn=lambda: ("", "", ""), outputs=[whitelist_notification, dept_notification, email_validation])
         role_subtab.select(fn=lambda: "", outputs=[spoc_notification])
         hierarchy_subtab.select(fn=lambda: None, outputs=[])
+        
+        
+         # ========== REVIEW & CLARIFICATION HANDLERS ==========
+        
+        def load_review_users():
+            if ui_service.is_admin():
+                users = user_management.get_all_users()
+                return gr.update(choices=[(f"{u['name']} ({u['email']})", u['email']) for u in users])
+            elif ui_service.is_spoc():
+                assigned = user_management.get_spoc_assignments(ui_service.current_user["email"])
+                users = user_management.get_all_users()
+                assigned_users = [u for u in users if u['email'] in assigned]
+                return gr.update(choices=[(f"{u['name']} ({u['email']})", u['email']) for u in assigned_users])
+            return gr.update(choices=[])
+        
+        def load_user_sessions(user_email):
+            if not user_email:
+                return gr.update(choices=[])
+            sessions = review_clarification_service.get_user_sessions_for_review(user_email)
+            return gr.update(choices=[("All Sessions", None)] + sessions)
+        
+        def load_qa_display(user_email, session_id):
+            if not user_email:
+                return [], "", "", "", "", [], [], gr.update(visible=False)
+            
+            qa_pairs = review_clarification_service.get_qa_pairs_for_user(user_email, session_id)
+            is_admin_spoc = ui_service.is_admin_or_spoc()
+            df_data, qa_data, msg_ids = review_clarification_service.get_qa_pairs_for_display(qa_pairs, is_admin_spoc)
+            return df_data, "", "", "", "", qa_data, msg_ids, gr.update(visible=is_admin_spoc)
+        
+        def load_user_qa_display(session_filter):
+            user_email = ui_service.current_user["email"]
+            session_id = None if session_filter == "All Sessions" else session_filter
+            
+            qa_pairs = review_clarification_service.get_qa_pairs_for_user(user_email, session_id)
+            df_data, qa_data, msg_ids = review_clarification_service.get_qa_pairs_for_display(qa_pairs, False)
+            return df_data, "", "", "", "", qa_data, msg_ids
+        
+        def refresh_user_sessions_dropdown():
+            user_email = ui_service.current_user["email"]
+            sessions = review_clarification_service.get_user_sessions_for_review(user_email)
+            return gr.update(choices=["All Sessions"] + [s[0] for s in sessions])
+        
+        def show_edit_form(message_id, question, answer, clarification):
+            return (
+                gr.update(visible=True),
+                message_id,
+                question,
+                answer[:200] + "...",
+                clarification,
+                ""
+            )
+        
+        
+        def on_qa_select(evt: gr.SelectData, qa_data):
+            if not qa_data or evt.index[0] >= len(qa_data):
+                return "", "", "", ""
+            
+            selected = qa_data[evt.index[0]]
+            feedback_text = selected.get('Feedback', 'No feedback')
+            clarification_text = selected.get('Clarification', '')
+            
+            return (
+                selected['Question'],
+                selected['Answer'],
+                feedback_text,
+                clarification_text
+            )
+        
+        def on_edit_click(qa_data, qa_ids, selected_row_index):
+            if not qa_data or selected_row_index is None or selected_row_index >= len(qa_data):
+                return gr.update(visible=False), None, "", "", "", ""
+            
+            selected = qa_data[selected_row_index]
+            message_id = selected['Message ID']
+            
+            return (
+                gr.update(visible=True),
+                message_id,
+                selected['Question'],
+                selected['Answer'],
+                selected['Clarification'].split(':\n')[-1] if selected['Clarification'] else "",
+                ""
+            )
+        
+        def save_clarification(message_id, clarification_text):
+            if not ui_service.is_admin_or_spoc() or not message_id:
+                return '<div class="notification" style="background: #ef4444 !important;">❌ Access denied</div>'
+            
+            if not clarification_text or not clarification_text.strip():
+                return '<div class="notification" style="background: #f59e0b !important;">⚠️ Clarification cannot be empty</div>'
+            
+            success = review_clarification_service.add_clarification(
+                message_id,
+                clarification_text.strip(),
+                ui_service.current_user["email"]
+            )
+            
+            if success:
+                return '<div class="notification">✅ Clarification saved successfully</div>'
+            else:
+                return '<div class="notification" style="background: #ef4444 !important;">❌ Failed to save clarification</div>'
+        
+        def remove_clarification(message_id):
+            if not ui_service.is_admin_or_spoc() or not message_id:
+                return '<div class="notification" style="background: #ef4444 !important;">❌ Access denied</div>'
+            
+            success = review_clarification_service.remove_clarification(message_id)
+            
+            if success:
+                return '<div class="notification">✅ Clarification removed successfully</div>'
+            return '<div class="notification" style="background: #ef4444 !important;">❌ Failed to remove clarification</div>'
+        
+        
+        
+        def load_full_conversation_from_qa_list(qa_state, selected_data):
+            """Load full conversation with clarifications and feedback for selected clarified QA"""
+            if not qa_state or not selected_data:
+                return []
+            
+            # Get the selected row's conversation ID
+            try:
+                # Since we don't have direct access to row selection in this context,
+                # we'll load the first available conversation from the qa_state
+                if qa_state:
+                    conv_id = qa_state[0].get("conversation_id")
+                    if conv_id:
+                        return load_full_conversation(conv_id)
+            except Exception:
+                pass
+            
+            return []
+        
+        def load_full_conversation(conv_id):
+            """Load full conversation with clarifications and feedback"""
+            if not conv_id:
+                return []
+            
+            try:
+                # Use the same function that loads conversations in chat tab with clarifications
+                result = load_conversation_with_clarifications(conv_id, None)
+                return result[0] if result else []
+            except Exception as e:
+                print(f"Error loading full conversation: {e}")
+                return []
+        
+
+        # ========== REVIEW & CLARIFICATION TAB - Unified Functions ==========
+        
+        def load_review_users_new():
+            """Load users for review dropdown - admins see all, SPOCs see only assigned"""
+            if not ui_service.is_admin_or_spoc():
+                return gr.update(choices=[])
+            
+            try:
+                if ui_service.is_admin():
+                    # Admins see all users
+                    all_users = user_management.get_all_users()
+                    user_choices = [(f"{user.get('name', user.get('email', 'Unknown'))} ({user.get('email', '')})", user.get("email", "")) for user in all_users]
+                elif ui_service.is_spoc():
+                    # SPOCs see only their assigned users
+                    assigned_emails = user_management.get_spoc_assignments(ui_service.current_user["email"])
+                    all_users = user_management.get_all_users()
+                    assigned_user_details = [user for user in all_users if user['email'] in assigned_emails]
+                    user_choices = [(f"{user.get('name', user.get('email', 'Unknown'))} ({user.get('email', '')})", user.get("email", "")) for user in assigned_user_details]
+                else:
+                    user_choices = []
+                
+                return gr.update(choices=user_choices)
+            except Exception as e:
+                print(f"Error loading users: {e}")
+                return gr.update(choices=[])
+        
+        def load_review_sessions_new(user_email):
+            """Load sessions for selected user"""
+            if not user_email:
+                return gr.update(choices=[])
+            
+            try:
+                conversations = chat_service.get_user_conversations(user_email)
+                session_choices = [("All Sessions", "all")] + [(conv["title"], conv["id"]) for conv in conversations]
+                return gr.update(choices=session_choices, value="all")
+            except Exception as e:
+                print(f"Error loading sessions: {e}")
+                return gr.update(choices=[])
+        
+        def filter_qa_data_new(user_email, session_filter, status_filter):
+            """Load and filter Q&A data based on status filter"""
+            if not user_email:
+                return [], []
+            
+            try:
+                session_id = None if session_filter == "all" else session_filter
+                qa_pairs = review_clarification_service.get_qa_pairs_for_user(user_email, session_id)
+                
+                if status_filter == "Pending Reviews":
+                    filtered = [qa for qa in qa_pairs if not qa.get("clarification")]
+                elif status_filter == "Clarified":
+                    filtered = [qa for qa in qa_pairs if qa.get("clarification")]
+                else:
+                    filtered = qa_pairs
+                
+                table_data, qa_data, message_ids = review_clarification_service.get_qa_pairs_for_display(filtered, True)
+                return table_data, qa_data
+            except Exception as e:
+                print(f"Error filtering Q&A data: {e}")
+                return [], []
+        
+        def handle_row_selection_new(qa_data, evt: gr.SelectData):
+            """Handle table row selection"""
+            if not qa_data or evt.index[0] >= len(qa_data):
+                return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), [], None, "")
+            
+            selected_qa = qa_data[evt.index[0]]
+            question = selected_qa.get("Question", "")
+            answer = selected_qa.get("Answer", "")
+            feedback = selected_qa.get("Feedback", "No feedback")
+            clarification = selected_qa.get("Clarification", "").replace("📝 SPOC Clarification (by", "").split("):", 1)[-1].strip() if selected_qa.get("Clarification") else ""
+            message_id = selected_qa.get("Message ID", "")
+            conversation_id = selected_qa.get("Conversation ID", "")
+            
+            conversation = load_review_conversation_new(conversation_id) if conversation_id else []
+            
+            # Set button text based on whether clarification exists
+            button_text = "✏️ Edit Clarification" if clarification else "➕ Add Clarification"
+            
+            return (question, answer, feedback, clarification, gr.update(visible=True, value=button_text), conversation, message_id, conversation_id)
+        
+        def load_review_conversation_new(conversation_id):
+            """Load conversation with clarifications"""
+            if not conversation_id:
+                return []
+            
+            try:
+                messages = review_clarification_service.get_conversation_messages_with_clarifications(conversation_id)
+                if not messages:
+                    return []
+                
+                history = []
+                for msg in messages:
+                    if msg["role"] == "user":
+                        history.append({"role": "user", "content": msg["content"]})
+                    elif msg["role"] == "assistant":
+                        history.append({"role": "assistant", "content": msg["content"]})
+                        
+                        feedback = msg.get("feedback")
+                        if feedback and feedback.lower() not in ["no feedback", "", "none"]:
+                            feedback_display = feedback
+                            if ":" in feedback:
+                                feedback_type, remarks = feedback.split(":", 1)
+                                feedback_display = f"**{feedback_type.title()}** - {remarks}"
+                            else:
+                                feedback_display = f"**{feedback.title()}**"
+                            history.append({"role": "assistant", "content": f"📊 **User Feedback:** {feedback_display}"})
+                        
+                        clarification = msg.get("clarification_text")
+                        if clarification:
+                            clarified_by = msg.get("clarified_by", "SPOC")
+                            clarified_by_name = clarified_by.split('@')[0].replace('.', ' ').title() if '@' in clarified_by else clarified_by
+                            history.append({"role": "assistant", "content": f"📝 **SPOC Clarification** (by {clarified_by_name}):\n\n{clarification}"})
+                
+                return history
+            except Exception as e:
+                print(f"Error loading conversation: {e}")
+                return []
+        
+        def refresh_after_clarification_save(user_email, session_filter, status_filter, conversation_id):
+            """Refresh after saving clarification"""
+            table_data, qa_data = filter_qa_data_new(user_email, session_filter, status_filter)
+            conversation = load_review_conversation_new(conversation_id) if conversation_id else []
+            return table_data, qa_data, conversation
+        
+        # In-place clarification editing handlers
+        select_qa_btn.click(
+            fn=lambda: gr.update(visible=True),
+            outputs=[clarification_edit_buttons]
+        )
+        
+        save_clarification_btn.click(
+            fn=save_clarification,
+            inputs=[selected_message_id, selected_clarification_display],
+            outputs=[review_notification]
+        ).then(
+            fn=refresh_after_clarification_save,
+            inputs=[review_user_dropdown, review_session_dropdown, review_status_filter, selected_conversation_id],
+            outputs=[qa_table, selected_qa_data, review_conversation_chatbot]
+        ).then(
+            fn=lambda: gr.update(visible=False),
+            outputs=[clarification_edit_buttons]
+        )
+        
+        remove_clarification_btn.click(
+            fn=remove_clarification,
+            inputs=[selected_message_id],
+            outputs=[review_notification]
+        ).then(
+            fn=refresh_after_clarification_save,
+            inputs=[review_user_dropdown, review_session_dropdown, review_status_filter, selected_conversation_id],
+            outputs=[qa_table, selected_qa_data, review_conversation_chatbot]
+        ).then(
+            fn=lambda: (gr.update(visible=False), gr.update(value="")),
+            outputs=[clarification_edit_buttons, selected_clarification_display]
+        )
+        
+        cancel_clarification_btn.click(
+            fn=lambda: gr.update(visible=False),
+            outputs=[clarification_edit_buttons]
+        )
+        
+        
+        # Review Tab Events
+        review_clarification_tab.select(
+            fn=load_review_users_new,
+            outputs=[review_user_dropdown]
+        )
+        
+        # Admin/SPOC: When user selected, load their sessions
+        review_user_dropdown.change(
+            fn=load_review_sessions_new,
+            inputs=[review_user_dropdown],
+            outputs=[review_session_dropdown]
+        ).then(
+            fn=filter_qa_data_new,
+            inputs=[review_user_dropdown, review_session_dropdown, review_status_filter],
+            outputs=[qa_table, selected_qa_data]
+        )
+        
+        # Admin/SPOC: When session filter changes
+        review_session_dropdown.change(
+            fn=filter_qa_data_new,
+            inputs=[review_user_dropdown, review_session_dropdown, review_status_filter],
+            outputs=[qa_table, selected_qa_data]
+        )
+        
+        # Admin/SPOC: When status filter changes
+        review_status_filter.change(
+            fn=filter_qa_data_new,
+            inputs=[review_user_dropdown, review_session_dropdown, review_status_filter],
+            outputs=[qa_table, selected_qa_data]
+        )
+        
+        # Table row selection
+        qa_table.select(
+            fn=handle_row_selection_new,
+            inputs=[selected_qa_data],
+            outputs=[
+                selected_question_display,
+                selected_answer_display,
+                selected_feedback_display,
+                selected_clarification_display,
+                select_qa_btn,
+                review_conversation_chatbot,
+                selected_message_id,
+                selected_conversation_id
+            ]
+        )
+        
+        # ========== REGULAR USER EVENTS (Clarified Messages Only) ==========
+        
+        def load_user_review_sessions():
+            """Load sessions for regular user with clarified messages"""
+            if ui_service.is_admin_or_spoc():
+                return gr.update(choices=[])
+            
+            try:
+                user_email = ui_service.current_user["email"]
+                conversations = chat_service.get_user_conversations(user_email)
+                
+                # Filter to show only sessions that have clarified messages
+                sessions_with_clarifications = []
+                for conv in conversations:
+                    qa_pairs = review_clarification_service.get_qa_pairs_for_user(user_email, conv["id"])
+                    has_clarified = any(qa.get("clarification") for qa in qa_pairs)
+                    if has_clarified:
+                        sessions_with_clarifications.append((conv["title"], conv["id"]))
+                
+                session_choices = [("All Sessions", "all")] + sessions_with_clarifications
+                return gr.update(choices=session_choices, value="all")
+            except Exception as e:
+                print(f"Error loading user sessions: {e}")
+                return gr.update(choices=[])
+        
+        def load_user_clarified_qa(session_filter):
+            """Load only clarified Q&A pairs for regular user"""
+            if ui_service.is_admin_or_spoc():
+                return [], []
+            
+            try:
+                user_email = ui_service.current_user["email"]
+                session_id = None if session_filter == "all" else session_filter
+                
+                # Get all Q&A pairs
+                qa_pairs = review_clarification_service.get_qa_pairs_for_user(user_email, session_id)
+                
+                # Filter to show only clarified messages
+                clarified_only = [qa for qa in qa_pairs if qa.get("clarification")]
+                
+                # Format for display
+                table_data, qa_data, message_ids = review_clarification_service.get_qa_pairs_for_display(clarified_only, False)
+                
+                return table_data, qa_data
+            except Exception as e:
+                print(f"Error loading clarified Q&A: {e}")
+                return [], []
+        
+        # When review tab is opened by regular user, load sessions
+        review_clarification_tab.select(
+            fn=lambda: load_user_review_sessions() if not ui_service.is_admin_or_spoc() else gr.update(),
+            outputs=[user_review_session_dropdown]
+        )
+        
+        # When user selects a session
+        user_review_session_dropdown.change(
+            fn=load_user_clarified_qa,
+            inputs=[user_review_session_dropdown],
+            outputs=[qa_table, selected_qa_data]
+        )
+        
+        # Refresh button for users
+        refresh_user_review_btn.click(
+            fn=load_user_clarified_qa,
+            inputs=[user_review_session_dropdown],
+            outputs=[qa_table, selected_qa_data]
+        )
         
         # Feedback handlers
         def handle_feedback_submission(feedback_selection, remarks, message_id, history):
