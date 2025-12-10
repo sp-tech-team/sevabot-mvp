@@ -21,7 +21,7 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    # Backward compatible Blocks initialization
+    # Backward compatible Blocks initialization - try modern params first, fallback to basic
     try:
         demo = gr.Blocks(
             theme=gr.themes.Soft(), 
@@ -30,11 +30,15 @@ def create_gradio_interface():
             css=get_main_app_css()
         )
     except TypeError:
-        # Fallback for older Gradio versions without theme support
-        demo = gr.Blocks(
-            title="Isha Sevabot",
-            css=get_main_app_css()
-        )
+        # Fallback for older Gradio versions - try without theme
+        try:
+            demo = gr.Blocks(
+                title="Isha Sevabot",
+                css=get_main_app_css()
+            )
+        except TypeError:
+            # Very old Gradio - minimal params only
+            demo = gr.Blocks(title="Isha Sevabot")
     
     with demo:
         
