@@ -3,12 +3,19 @@ Archive API Endpoints
 FastAPI endpoints for retrieving and managing archived conversations from S3
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 
 from s3_archive_service import s3_archive_service
-from auth_service import get_current_user
+from auth import get_logged_in_user
+
+def get_current_user(request: Request) -> dict:
+    """Dependency to get current user from request"""
+    user = get_logged_in_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
 
 
 # Create router

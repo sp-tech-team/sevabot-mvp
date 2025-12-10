@@ -13,6 +13,34 @@ from constants import USER_ROLES
 
 from ui_styles import (get_favicon_link, get_isha_logo_svg, get_landing_page_html, get_main_app_css)
 
+# Detect Gradio version capabilities
+def _supports_messages_format():
+    """Check if Gradio supports messages format"""
+    try:
+        # Try creating a test chatbot with messages format
+        test = gr.Chatbot(type="messages")
+        return True
+    except (TypeError, AttributeError):
+        return False
+
+GRADIO_SUPPORTS_MESSAGES = _supports_messages_format()
+
+def _convert_to_tuples(messages):
+    """Convert messages format to tuples format for old Gradio"""
+    if not messages:
+        return []
+    tuples = []
+    i = 0
+    while i < len(messages):
+        if i < len(messages) and messages[i].get("role") == "user":
+            user_msg = messages[i].get("content", "")
+            assistant_msg = messages[i+1].get("content", "") if i+1 < len(messages) and messages[i+1].get("role") == "assistant" else ""
+            tuples.append([user_msg, assistant_msg])
+            i += 2
+        else:
+            i += 1
+    return tuples
+
 def create_landing_page_html() -> str:
     """Landing page HTML"""
     return get_landing_page_html()
@@ -21,7 +49,7 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    # Backward compatible Blocks initialization - try modern params first, fallback to basic
+    # Version-safe Blocks initialization
     try:
         demo = gr.Blocks(
             theme=gr.themes.Soft(), 
@@ -30,14 +58,9 @@ def create_gradio_interface():
             css=get_main_app_css()
         )
     except TypeError:
-        # Fallback for older Gradio versions - try without theme
         try:
-            demo = gr.Blocks(
-                title="Isha Sevabot",
-                css=get_main_app_css()
-            )
+            demo = gr.Blocks(title="Isha Sevabot", css=get_main_app_css())
         except TypeError:
-            # Very old Gradio - minimal params only
             demo = gr.Blocks(title="Isha Sevabot")
     
     with demo:
@@ -93,14 +116,20 @@ def create_gradio_interface():
                                 )
                                 refresh_chat_users_btn = gr.Button("🔄 Refresh Users", variant="secondary", scale=1)
                         
-                        # Chat interface
-                        chatbot = gr.Chatbot(
-                            label="",
-                            height="70vh",
-                            show_copy_button=True,
-                            show_share_button=False,
-                            type="messages"
-                        )
+                        # Chat interface - version-safe chatbot
+                        if GRADIO_SUPPORTS_MESSAGES:
+                            chatbot = gr.Chatbot(
+                                label="",
+                                height="70vh",
+                                show_copy_button=True,
+                                show_share_button=False,
+                                type="messages"
+                            )
+                        else:
+                            chatbot = gr.Chatbot(
+                                label="",
+                                height="70vh"
+                            )
                         
                         # Feedback row
                         with gr.Column(visible=False, elem_classes="feedback-container") as feedback_row:
@@ -705,12 +734,18 @@ def create_gradio_interface():
                     # Right column: Chat Conversation
                     with gr.Column(scale=1):
                         gr.Markdown("### Full Conversation")
-                        review_conversation_chatbot = gr.Chatbot(
-                            label="", 
-                            height=600, 
-                            type="messages",
-                            show_copy_button=True
-                        )
+                        if GRADIO_SUPPORTS_MESSAGES:
+                            review_conversation_chatbot = gr.Chatbot(
+                                label="", 
+                                height=600, 
+                                type="messages",
+                                show_copy_button=True
+                            )
+                        else:
+                            review_conversation_chatbot = gr.Chatbot(
+                                label="", 
+                                height=600
+                            )
                 
                 # State variables
                 selected_qa_data = gr.State([])
@@ -2666,6 +2701,10 @@ def create_gradio_interface():
                             clarified_by_name = clarified_by.split('@')[0].replace('.', ' ').title() if '@' in clarified_by else clarified_by
                             history.append({"role": "assistant", "content": f"📝 **SPOC Clarification** (by {clarified_by_name}):\n\n{clarification}"})
                 
+                # Convert to tuples format if old Gradio
+                if not GRADIO_SUPPORTS_MESSAGES:
+                    return _convert_to_tuples(history)
+                
                 return history
             except Exception as e:
                 print(f"Error loading conversation: {e}")
@@ -2810,7 +2849,7 @@ def create_gradio_interface():
                 print(f"Error loading clarified Q&A: {e}")
                 return [], []
         
-        # When review tab is opened by regular user, load sessions and initial data
+        # When review tab is opened by regular user, load sessions
         review_clarification_tab.select(
             fn=lambda: load_user_review_sessions() if not ui_service.is_admin_or_spoc() else gr.update(),
             outputs=[user_review_session_dropdown]

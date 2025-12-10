@@ -20,6 +20,13 @@ except Exception as e:
     print(f"❌ Error importing auth router: {e}")
     exit(1)
 
+try:
+    from archive_api import archive_router
+    print(f"✅ Archive router imported")
+except Exception as e:
+    print(f"⚠️  Archive router not available: {e}")
+    archive_router = None
+
 from ui import create_ui
 from chat_service import chat_service
 from config import USE_S3_STORAGE, COMMON_KNOWLEDGE_PATH, RAG_DOCUMENTS_PATH
@@ -235,6 +242,8 @@ app.mount("/images", StaticFiles(directory="./images"), name="images")
 app.include_router(auth_router, tags=["Authentication"])
 app.include_router(api_router)
 app.include_router(rag_router, tags=["RAG"])
+if archive_router:
+    app.include_router(archive_router, tags=["Archive"])
 
 # Create UI
 create_ui(app)
