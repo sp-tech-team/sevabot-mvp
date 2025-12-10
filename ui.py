@@ -21,12 +21,22 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    with gr.Blocks(
-        theme=gr.themes.Soft(), 
-        title="Isha Sevabot",
-        head=get_favicon_link(),
-        css=get_main_app_css()
-    ) as demo:
+    # Backward compatible Blocks initialization
+    try:
+        demo = gr.Blocks(
+            theme=gr.themes.Soft(), 
+            title="Isha Sevabot",
+            head=get_favicon_link(),
+            css=get_main_app_css()
+        )
+    except TypeError:
+        # Fallback for older Gradio versions without theme support
+        demo = gr.Blocks(
+            title="Isha Sevabot",
+            css=get_main_app_css()
+        )
+    
+    with demo:
         
         # State variables
         current_conversation_id = gr.State(None)
@@ -2796,10 +2806,13 @@ def create_gradio_interface():
                 print(f"Error loading clarified Q&A: {e}")
                 return [], []
         
-        # When review tab is opened by regular user, load sessions
+        # When review tab is opened by regular user, load sessions and initial data
         review_clarification_tab.select(
             fn=lambda: load_user_review_sessions() if not ui_service.is_admin_or_spoc() else gr.update(),
             outputs=[user_review_session_dropdown]
+        ).then(
+            fn=lambda: load_user_clarified_qa("all") if not ui_service.is_admin_or_spoc() else ([], []),
+            outputs=[qa_table, selected_qa_data]
         )
         
         # When user selects a session
@@ -2811,6 +2824,9 @@ def create_gradio_interface():
         
         # Refresh button for users
         refresh_user_review_btn.click(
+            fn=load_user_review_sessions,
+            outputs=[user_review_session_dropdown]
+        ).then(
             fn=load_user_clarified_qa,
             inputs=[user_review_session_dropdown],
             outputs=[qa_table, selected_qa_data]
