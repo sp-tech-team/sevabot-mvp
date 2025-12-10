@@ -59,8 +59,10 @@ jobs:
         IMAGE_TAG: ${{ github.sha }}
       run: |
         echo "🔨 Building Docker image..."
-        # Build the docker image
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        # Build with cache-busting for pip layer to ensure gradio upgrade
+        docker build \
+          --build-arg CACHEBUST=$(date +%s) \
+          -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
         docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
         
         echo "📤 Pushing to ECR (this serves as our backup!)..."
