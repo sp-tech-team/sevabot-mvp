@@ -105,13 +105,20 @@ def create_gradio_interface():
                                 refresh_chat_users_btn = gr.Button("🔄 Refresh Users", variant="secondary", scale=1)
                         
                         # Chat interface
-                        chatbot = gr.Chatbot(
-                            label="",
-                            height="70vh",
-                            show_copy_button=True,
-                            show_share_button=False,
-                            type="messages"
-                        )
+                        # Chat interface - version-aware
+                        if GRADIO_SUPPORTS_MESSAGES:
+                            chatbot = gr.Chatbot(
+                                label="",
+                                height="70vh",
+                                show_copy_button=True,
+                                show_share_button=False,
+                                type="messages"
+                            )
+                        else:
+                            chatbot = gr.Chatbot(
+                                label="",
+                                height="70vh"
+                            )
                         
                         # Feedback row
                         with gr.Column(visible=False, elem_classes="feedback-container") as feedback_row:
@@ -716,12 +723,18 @@ def create_gradio_interface():
                     # Right column: Chat Conversation
                     with gr.Column(scale=1):
                         gr.Markdown("### Full Conversation")
-                        review_conversation_chatbot = gr.Chatbot(
-                            label="", 
-                            height=600, 
-                            type="messages",
-                            show_copy_button=True
-                        )
+                        if GRADIO_SUPPORTS_MESSAGES:
+                            review_conversation_chatbot = gr.Chatbot(
+                                label="", 
+                                height=600, 
+                                type="messages",
+                                show_copy_button=True
+                            )
+                        else:
+                            review_conversation_chatbot = gr.Chatbot(
+                                label="", 
+                                height=600
+                            )
                 
                 # State variables
                 selected_qa_data = gr.State([])
