@@ -689,13 +689,11 @@ def create_gradio_interface():
                             label="Question", 
                             lines=3, 
                             interactive=False,
-                            show_copy_button=True
                         )
                         selected_answer_display = gr.Textbox(
                             label="Answer", 
                             lines=5, 
                             interactive=False,
-                            show_copy_button=True
                         )
                         selected_feedback_display = gr.Textbox(
                             label="Feedback", 
