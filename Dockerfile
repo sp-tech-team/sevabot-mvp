@@ -12,9 +12,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Cache-busting arg to force fresh pip install when requirements change
-ARG CACHEBUST=1
-
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 

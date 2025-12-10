@@ -49,19 +49,12 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    # Version-safe Blocks initialization
-    try:
-        demo = gr.Blocks(
-            theme=gr.themes.Soft(), 
-            title="Isha Sevabot",
-            head=get_favicon_link(),
-            css=get_main_app_css()
-        )
-    except TypeError:
-        try:
-            demo = gr.Blocks(title="Isha Sevabot", css=get_main_app_css())
-        except TypeError:
-            demo = gr.Blocks(title="Isha Sevabot")
+    # Gradio 6.0: CSS moved to launch, but when using mount_gradio_app we set via Blocks
+    demo = gr.Blocks(
+        title="Isha Sevabot",
+        theme=gr.themes.Soft(),
+        css=get_main_app_css()
+    )
     
     with demo:
         
