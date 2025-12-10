@@ -49,12 +49,16 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    # Gradio 6.0: Create Blocks without deprecated params
-    demo = gr.Blocks(title="Isha Sevabot", theme=gr.themes.Soft())
+    import warnings
+    warnings.filterwarnings('ignore', message='.*parameters have been moved.*')
     
-    with demo:
-        # Inject CSS via HTML component for Gradio 6.0 compatibility
-        gr.HTML(f"<style>{get_main_app_css()}</style>", visible=False)
+    # Gradio 6.0: Link external CSS file
+    with gr.Blocks(
+        theme=gr.themes.Soft(), 
+        title="Isha Sevabot",
+        head=get_favicon_link() + '<link rel="stylesheet" href="/gradio/custom.css">',
+        css=""
+    ) as demo:
         
         # State variables
         current_conversation_id = gr.State(None)
@@ -2996,6 +3000,12 @@ def create_ui(app: FastAPI):
     @app.get("/chat")
     async def chat_redirect(request: Request):
         return RedirectResponse("/")
+    
+    # Inject CSS endpoint for Gradio 6.0
+    @app.get("/gradio/custom.css")
+    async def custom_css():
+        from fastapi.responses import Response
+        return Response(content=get_main_app_css(), media_type="text/css")
     
     @app.middleware("http")
     async def auth_middleware(request, call_next):
