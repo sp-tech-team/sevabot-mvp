@@ -49,14 +49,12 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    # Gradio 6.0: CSS moved to launch, but when using mount_gradio_app we set via Blocks
-    demo = gr.Blocks(
-        title="Isha Sevabot",
-        theme=gr.themes.Soft(),
-        css=get_main_app_css()
-    )
+    # Gradio 6.0: Create Blocks without deprecated params
+    demo = gr.Blocks(title="Isha Sevabot", theme=gr.themes.Soft())
     
     with demo:
+        # Inject CSS via HTML component for Gradio 6.0 compatibility
+        gr.HTML(f"<style>{get_main_app_css()}</style>", visible=False)
         
         # State variables
         current_conversation_id = gr.State(None)
