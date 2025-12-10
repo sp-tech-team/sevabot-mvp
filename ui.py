@@ -17,7 +17,6 @@ from ui_styles import (get_favicon_link, get_isha_logo_svg, get_landing_page_htm
 def _supports_messages_format():
     """Check if Gradio supports messages format"""
     try:
-        # Try creating a test chatbot with messages format
         test = gr.Chatbot(type="messages")
         return True
     except (TypeError, AttributeError):
@@ -44,20 +43,14 @@ def _convert_to_tuples(messages):
 def create_landing_page_html() -> str:
     """Landing page HTML"""
     return get_landing_page_html()
-
-
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    import warnings
-    warnings.filterwarnings('ignore', message='.*parameters have been moved.*')
-    
-    # Gradio 6.0: Link external CSS file
     with gr.Blocks(
         theme=gr.themes.Soft(), 
         title="Isha Sevabot",
-        head=get_favicon_link() + '<link rel="stylesheet" href="/gradio/custom.css">',
-        css=""
+        head=get_favicon_link(),
+        css=get_main_app_css()
     ) as demo:
         
         # State variables
@@ -111,20 +104,14 @@ def create_gradio_interface():
                                 )
                                 refresh_chat_users_btn = gr.Button("🔄 Refresh Users", variant="secondary", scale=1)
                         
-                        # Chat interface - version-safe chatbot
-                        if GRADIO_SUPPORTS_MESSAGES:
-                            chatbot = gr.Chatbot(
-                                label="",
-                                height="70vh",
-                                show_copy_button=True,
-                                show_share_button=False,
-                                type="messages"
-                            )
-                        else:
-                            chatbot = gr.Chatbot(
-                                label="",
-                                height="70vh"
-                            )
+                        # Chat interface
+                        chatbot = gr.Chatbot(
+                            label="",
+                            height="70vh",
+                            show_copy_button=True,
+                            show_share_button=False,
+                            type="messages"
+                        )
                         
                         # Feedback row
                         with gr.Column(visible=False, elem_classes="feedback-container") as feedback_row:
@@ -695,11 +682,13 @@ def create_gradio_interface():
                             label="Question", 
                             lines=3, 
                             interactive=False,
+                            show_copy_button=True
                         )
                         selected_answer_display = gr.Textbox(
                             label="Answer", 
                             lines=5, 
                             interactive=False,
+                            show_copy_button=True
                         )
                         selected_feedback_display = gr.Textbox(
                             label="Feedback", 
@@ -727,18 +716,12 @@ def create_gradio_interface():
                     # Right column: Chat Conversation
                     with gr.Column(scale=1):
                         gr.Markdown("### Full Conversation")
-                        if GRADIO_SUPPORTS_MESSAGES:
-                            review_conversation_chatbot = gr.Chatbot(
-                                label="", 
-                                height=600, 
-                                type="messages",
-                                show_copy_button=True
-                            )
-                        else:
-                            review_conversation_chatbot = gr.Chatbot(
-                                label="", 
-                                height=600
-                            )
+                        review_conversation_chatbot = gr.Chatbot(
+                            label="", 
+                            height=600, 
+                            type="messages",
+                            show_copy_button=True
+                        )
                 
                 # State variables
                 selected_qa_data = gr.State([])
@@ -2694,7 +2677,7 @@ def create_gradio_interface():
                             clarified_by_name = clarified_by.split('@')[0].replace('.', ' ').title() if '@' in clarified_by else clarified_by
                             history.append({"role": "assistant", "content": f"📝 **SPOC Clarification** (by {clarified_by_name}):\n\n{clarification}"})
                 
-                # Convert to tuples format if old Gradio
+                # Convert to tuples if old Gradio
                 if not GRADIO_SUPPORTS_MESSAGES:
                     return _convert_to_tuples(history)
                 
@@ -3000,12 +2983,6 @@ def create_ui(app: FastAPI):
     @app.get("/chat")
     async def chat_redirect(request: Request):
         return RedirectResponse("/")
-    
-    # Inject CSS endpoint for Gradio 6.0
-    @app.get("/gradio/custom.css")
-    async def custom_css():
-        from fastapi.responses import Response
-        return Response(content=get_main_app_css(), media_type="text/css")
     
     @app.middleware("http")
     async def auth_middleware(request, call_next):
