@@ -3,8 +3,8 @@ fastapi
 uvicorn[standard]
 python-multipart
 
-# UI - Version flexible (supports both old and new)
-gradio>=4.0.0
+# UI - Pin to Gradio 4.x (stable, works with mount_gradio_app + css)
+gradio==4.44.0
 
 # Database
 supabase

@@ -49,11 +49,9 @@ def create_gradio_interface():
     with gr.Blocks(
         theme=gr.themes.Soft(), 
         title="Isha Sevabot",
-        head=get_favicon_link()
+        head=get_favicon_link(),
+        css=get_main_app_css()
     ) as demo:
-        
-        # Inject CSS for Gradio 6.0 compatibility
-        gr.HTML(f"<style>{get_main_app_css()}</style>", visible=False)
         
         # State variables
         current_conversation_id = gr.State(None)
