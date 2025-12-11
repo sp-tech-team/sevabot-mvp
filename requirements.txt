@@ -2,10 +2,9 @@
 fastapi
 uvicorn[standard]
 python-multipart
-websockets==13.1
 
-# UI - Gradio 5.x has all features + stable dependencies
-gradio==5.5.0
+# UI - Gradio 4.29.0 (stable, no websockets.asyncio requirement)
+gradio==4.29.0
 
 # Database
 supabase
