@@ -46,23 +46,11 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    # Gradio 6.0: Minimal Blocks, CSS via HTML component
     with gr.Blocks(
         theme=gr.themes.Soft(), 
-        title="Isha Sevabot"
+        title="Isha Sevabot",
+        css=get_main_app_css()
     ) as demo:
-        
-        # Inject custom CSS via HTML
-        gr.HTML("""
-        <link rel="stylesheet" href="/custom.css">
-        <script>
-        // Force CSS reload on Gradio 6.0
-        setTimeout(() => {
-            const link = document.querySelector('link[href="/custom.css"]');
-            if (link) link.href = '/custom.css?' + Date.now();
-        }, 100);
-        </script>
-        """, visible=False)
         
         # State variables
         current_conversation_id = gr.State(None)
@@ -3005,12 +2993,6 @@ def create_ui(app: FastAPI):
     @app.get("/chat")
     async def chat_redirect(request: Request):
         return RedirectResponse("/")
-    
-    # Serve custom CSS as static file
-    @app.get("/custom.css")
-    async def serve_custom_css():
-        from fastapi.responses import Response
-        return Response(content=get_main_app_css(), media_type="text/css")
     
     @app.middleware("http")
     async def auth_middleware(request, call_next):

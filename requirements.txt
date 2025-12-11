@@ -6,8 +6,8 @@ python-multipart
 # Websockets (required by newer Supabase)
 websockets>=13.0
 
-# UI - Use Gradio that doesn't conflict
-gradio
+# UI - Pin to Gradio 4.44.1 (supports css in Blocks + mount_gradio_app)
+gradio==4.44.1
 
 # Database
 supabase
