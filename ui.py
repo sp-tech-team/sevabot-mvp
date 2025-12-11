@@ -46,11 +46,23 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    # Gradio 6.0: Minimal Blocks, CSS injected via middleware
+    # Gradio 6.0: Minimal Blocks, CSS via HTML component
     with gr.Blocks(
         theme=gr.themes.Soft(), 
         title="Isha Sevabot"
     ) as demo:
+        
+        # Inject custom CSS via HTML
+        gr.HTML("""
+        <link rel="stylesheet" href="/custom.css">
+        <script>
+        // Force CSS reload on Gradio 6.0
+        setTimeout(() => {
+            const link = document.querySelector('link[href="/custom.css"]');
+            if (link) link.href = '/custom.css?' + Date.now();
+        }, 100);
+        </script>
+        """, visible=False)
         
         # State variables
         current_conversation_id = gr.State(None)
@@ -2994,6 +3006,12 @@ def create_ui(app: FastAPI):
     async def chat_redirect(request: Request):
         return RedirectResponse("/")
     
+    # Serve custom CSS as static file
+    @app.get("/custom.css")
+    async def serve_custom_css():
+        from fastapi.responses import Response
+        return Response(content=get_main_app_css(), media_type="text/css")
+    
     @app.middleware("http")
     async def auth_middleware(request, call_next):
         if request.url.path.startswith("/gradio"):
@@ -3003,27 +3021,6 @@ def create_ui(app: FastAPI):
             ui_service.set_user(user_data)
         
         response = await call_next(request)
-        
-        # Inject CSS into Gradio pages for Gradio 6.0 compatibility
-        if request.url.path.startswith("/gradio") and "text/html" in response.headers.get("content-type", ""):
-            from starlette.responses import Response
-            body = b""
-            async for chunk in response.body_iterator:
-                body += chunk
-            
-            # Inject CSS before </head>
-            css_tag = f'<style type="text/css">{get_main_app_css()}</style></head>'
-            html_content = body.decode('utf-8')
-            
-            if '</head>' in html_content:
-                html_content = html_content.replace('</head>', css_tag)
-                return Response(
-                    content=html_content.encode('utf-8'),
-                    status_code=response.status_code,
-                    headers=dict(response.headers),
-                    media_type=response.media_type
-                )
-        
         return response
     
     # Mount Gradio interface
