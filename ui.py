@@ -46,18 +46,10 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    # CSS injection that works across Gradio versions
-    css_injection = f"""
-    {get_favicon_link()}
-    <style type="text/css">
-    {get_main_app_css()}
-    </style>
-    """
-    
+    # Gradio 6.0: Minimal Blocks, CSS injected via middleware
     with gr.Blocks(
         theme=gr.themes.Soft(), 
-        title="Isha Sevabot",
-        head=css_injection
+        title="Isha Sevabot"
     ) as demo:
         
         # State variables
@@ -3011,6 +3003,27 @@ def create_ui(app: FastAPI):
             ui_service.set_user(user_data)
         
         response = await call_next(request)
+        
+        # Inject CSS into Gradio pages for Gradio 6.0 compatibility
+        if request.url.path.startswith("/gradio") and "text/html" in response.headers.get("content-type", ""):
+            from starlette.responses import Response
+            body = b""
+            async for chunk in response.body_iterator:
+                body += chunk
+            
+            # Inject CSS before </head>
+            css_tag = f'<style type="text/css">{get_main_app_css()}</style></head>'
+            html_content = body.decode('utf-8')
+            
+            if '</head>' in html_content:
+                html_content = html_content.replace('</head>', css_tag)
+                return Response(
+                    content=html_content.encode('utf-8'),
+                    status_code=response.status_code,
+                    headers=dict(response.headers),
+                    media_type=response.media_type
+                )
+        
         return response
     
     # Mount Gradio interface
