@@ -46,11 +46,18 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
+    # CSS injection that works across Gradio versions
+    css_injection = f"""
+    {get_favicon_link()}
+    <style type="text/css">
+    {get_main_app_css()}
+    </style>
+    """
+    
     with gr.Blocks(
         theme=gr.themes.Soft(), 
         title="Isha Sevabot",
-        head=get_favicon_link(),
-        css=get_main_app_css()
+        head=css_injection
     ) as demo:
         
         # State variables
