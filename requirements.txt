@@ -3,12 +3,12 @@ fastapi
 uvicorn[standard]
 python-multipart
 
-# UI - Pin to Gradio 4.44.1 (supports css in Blocks)
-gradio==4.44.1
+# UI - Pin to stable Gradio version with css support
+gradio==4.36.1
 
-# Database - Pin to version compatible with websockets <13
-supabase==2.7.4
-websockets<13.0,>=10.0
+# Database - Use compatible versions
+supabase==2.8.0
+websockets>=11.0,<14.0
 
 # Environment
 python-dotenv
