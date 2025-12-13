@@ -5,6 +5,7 @@ python-multipart
 
 # UI - Stable version that avoids schema processing issues
 gradio==4.32.2
+huggingface_hub<0.20.0
 
 # Database - Compatible version that works with websockets
 supabase==2.4.5
