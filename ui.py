@@ -46,15 +46,15 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    # Create CSS injection for head
-    css_head = f"""
-    {get_favicon_link()}
-    <style>
-    {get_main_app_css()}
-    </style>
-    """
-    
-    with gr.Blocks(title="Isha Sevabot", head=css_head) as demo:
+    with gr.Blocks(title="Isha Sevabot") as demo:
+        
+        # Inject CSS and favicon via HTML since Gradio 6.0 doesn't support head parameter
+        gr.HTML(f"""
+        <style>
+        {get_main_app_css()}
+        </style>
+        {get_favicon_link()}
+        """, visible=False)
         
         # State variables
         current_conversation_id = gr.State(None)
@@ -2665,16 +2665,27 @@ def create_gradio_interface():
                 conversation = load_review_conversation_new(conversation_id) if conversation_id else []
                 print(f"DEBUG: Loaded conversation with {len(conversation)} messages")
                 
+                # DEBUG: Print exact structure
+                if conversation:
+                    print(f"DEBUG: Conversation type: {type(conversation)}")
+                    print(f"DEBUG: First message: {conversation[0]}")
+                    print(f"DEBUG: First message type: {type(conversation[0])}")
+                    if isinstance(conversation[0], dict):
+                        print(f"DEBUG: First message keys: {conversation[0].keys()}")
+                        print(f"DEBUG: First message role type: {type(conversation[0].get('role'))}")
+                        print(f"DEBUG: First message content type: {type(conversation[0].get('content'))}")
+                
                 # Set button text based on whether clarification exists
                 button_text = "✏️ Edit Clarification" if clarification else "➕ Add Clarification"
                 
-                return (question, answer, feedback, clarification, gr.update(visible=True, value=button_text), conversation, message_id, conversation_id)
+                # Return conversation as gr.update for Chatbot component
+                return (question, answer, feedback, clarification, gr.update(visible=True, value=button_text), gr.update(value=conversation), message_id, conversation_id)
             
             except Exception as e:
                 print(f"ERROR in handle_row_selection_new: {e}")
                 import traceback
                 traceback.print_exc()
-                return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), [], None, "")
+                return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), gr.update(value=[]), None, "")
         
         def load_review_conversation_new(conversation_id):
             """Load conversation with clarifications"""
@@ -2726,6 +2737,11 @@ def create_gradio_interface():
                     if not isinstance(msg["content"], str):
                         print(f"ERROR: Message {i} content not string: {type(msg['content'])}")
                         msg["content"] = str(msg["content"])
+                
+                # FINAL DEBUG: Print what we're returning
+                print(f"DEBUG load_review_conversation_new: Returning {len(history)} messages")
+                for i, msg in enumerate(history[:3]):  # Print first 3
+                    print(f"DEBUG Message {i}: role={msg.get('role')!r} content_len={len(msg.get('content', ''))}")
                 
                 return history
             except Exception as e:
