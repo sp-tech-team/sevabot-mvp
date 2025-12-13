@@ -46,7 +46,7 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    with gr.Blocks(title="Isha Sevabot", theme=gr.themes.Soft(), css=get_main_app_css()) as demo:
+    with gr.Blocks(title="Isha Sevabot") as demo:
         
         # State variables
         current_conversation_id = gr.State(None)
@@ -2645,6 +2645,11 @@ def create_gradio_interface():
             
             conversation = load_review_conversation_new(conversation_id) if conversation_id else []
             
+            # DEBUG: Log conversation format
+            print(f"DEBUG: Conversation type: {type(conversation)}, length: {len(conversation) if isinstance(conversation, list) else 'N/A'}")
+            if conversation and len(conversation) > 0:
+                print(f"DEBUG: First message type: {type(conversation[0])}, content: {conversation[0]}")
+            
             # Set button text based on whether clarification exists
             button_text = "✏️ Edit Clarification" if clarification else "➕ Add Clarification"
             
@@ -2663,14 +2668,14 @@ def create_gradio_interface():
                 history = []
                 for msg in messages:
                     if msg["role"] == "user":
-                        content = msg.get("content", "")
-                        history.append({"role": "user", "content": str(content) if content else ""})
+                        content = msg.get("content") or ""
+                        history.append({"role": "user", "content": str(content)})
                     elif msg["role"] == "assistant":
-                        content = msg.get("content", "")
-                        history.append({"role": "assistant", "content": str(content) if content else ""})
+                        content = msg.get("content") or ""
+                        history.append({"role": "assistant", "content": str(content)})
                         
                         feedback = msg.get("feedback")
-                        if feedback and feedback.lower() not in ["no feedback", "", "none"]:
+                        if feedback and feedback.lower() not in ["no feedback", "", "none", "null"]:
                             feedback_display = feedback
                             if ":" in feedback:
                                 feedback_type, remarks = feedback.split(":", 1)
@@ -2689,9 +2694,23 @@ def create_gradio_interface():
                 if not GRADIO_SUPPORTS_MESSAGES:
                     return _convert_to_tuples(history)
                 
+                # Validate all messages have required fields for Gradio 6.0
+                for i, msg in enumerate(history):
+                    if not isinstance(msg, dict):
+                        print(f"ERROR: Message {i} is not a dict: {type(msg)}")
+                        return []
+                    if "role" not in msg or "content" not in msg:
+                        print(f"ERROR: Message {i} missing role/content: {msg}")
+                        return []
+                    if not isinstance(msg["content"], str):
+                        print(f"ERROR: Message {i} content not string: {type(msg['content'])}")
+                        msg["content"] = str(msg["content"])
+                
                 return history
             except Exception as e:
                 print(f"Error loading conversation: {e}")
+                import traceback
+                traceback.print_exc()
                 return []
         
         def refresh_after_clarification_save(user_email, session_filter, status_filter, conversation_id):
@@ -3005,5 +3024,9 @@ def create_ui(app: FastAPI):
     
     # Mount Gradio interface
     demo = create_gradio_interface()
+    
+    # Set theme and CSS for Gradio 6.0+
+    demo.theme = gr.themes.Soft()
+    demo.css = get_main_app_css()
     
     mount_gradio_app(app, demo, path="/gradio")
