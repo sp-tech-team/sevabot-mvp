@@ -46,11 +46,7 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    with gr.Blocks(
-        theme=gr.themes.Soft(), 
-        title="Isha Sevabot",
-        css=get_main_app_css()
-    ) as demo:
+    with gr.Blocks() as demo:
         
         # State variables
         current_conversation_id = gr.State(None)
@@ -2669,11 +2665,11 @@ def create_gradio_interface():
                     if msg["role"] == "user":
                         # Ensure content is string to avoid Gradio format errors
                         content = str(msg["content"]) if msg.get("content") is not None else ""
-                        history.append({"role": "user", "content": content})
+                        history.append({"role": "user", "content": str(content) if content else ""})
                     elif msg["role"] == "assistant":
                         # Ensure content is string to avoid Gradio format errors
                         content = str(msg["content"]) if msg.get("content") is not None else ""
-                        history.append({"role": "assistant", "content": content})
+                        history.append({"role": "assistant", "content": str(content) if content else ""})
                         
                         feedback = msg.get("feedback")
                         if feedback and feedback.lower() not in ["no feedback", "", "none"]:
@@ -2683,13 +2679,13 @@ def create_gradio_interface():
                                 feedback_display = f"**{feedback_type.title()}** - {remarks}"
                             else:
                                 feedback_display = f"**{feedback.title()}**"
-                            history.append({"role": "assistant", "content": f"📊 **User Feedback:** {feedback_display}"})
+                            history.append({"role": "assistant", "content": str(f"📊 **User Feedback:** {feedback_display}")})
                         
                         clarification = msg.get("clarification_text")
                         if clarification:
                             clarified_by = msg.get("clarified_by", "SPOC")
                             clarified_by_name = clarified_by.split('@')[0].replace('.', ' ').title() if '@' in clarified_by else clarified_by
-                            history.append({"role": "assistant", "content": f"📝 **SPOC Clarification** (by {clarified_by_name}):\n\n{clarification}"})
+                            history.append({"role": "assistant", "content": str(f"📝 **SPOC Clarification** (by {clarified_by_name}):\n\n{clarification}")})
                 
                 # Convert to tuples if old Gradio
                 if not GRADIO_SUPPORTS_MESSAGES:
@@ -3011,4 +3007,9 @@ def create_ui(app: FastAPI):
     
     # Mount Gradio interface
     demo = create_gradio_interface()
+    # Configure demo properties for Gradio 6.0+ compatibility
+    demo.title = "Isha Sevabot"
+    demo.theme = gr.themes.Soft()
+    demo.css = get_main_app_css()
+    
     mount_gradio_app(app, demo, path="/gradio")
