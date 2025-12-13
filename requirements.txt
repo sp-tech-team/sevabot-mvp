@@ -1,14 +1,14 @@
 # Core framework
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+fastapi
+uvicorn[standard]
 python-multipart
 
-# UI - Stable version that supports CSS in Blocks constructor
-gradio==4.7.1
+# UI - Stable version that avoids schema processing issues
+gradio==4.32.2
 
-# Database - Stable version before websockets.asyncio issues
-supabase==1.5.0
-websockets==11.0.3
+# Database - Compatible version that works with websockets
+supabase==2.4.5
+websockets>=10.0,<12.0
 
 # Environment
 python-dotenv
@@ -18,7 +18,7 @@ itsdangerous
 
 # AI and ML
 openai
-langchain==0.0.350
+langchain
 langchain-core
 langchain-openai
 langchain-chroma
@@ -28,7 +28,7 @@ langchain-text-splitters
 # Vector database
 chromadb
 
-# Document processing
+# Document processing (LangChain compatible)
 pypdf
 pymupdf
 python-docx
