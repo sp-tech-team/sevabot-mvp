@@ -46,7 +46,15 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    with gr.Blocks(title="Isha Sevabot") as demo:
+    # Create CSS injection for head
+    css_head = f"""
+    {get_favicon_link()}
+    <style>
+    {get_main_app_css()}
+    </style>
+    """
+    
+    with gr.Blocks(title="Isha Sevabot", head=css_head) as demo:
         
         # State variables
         current_conversation_id = gr.State(None)
@@ -2632,28 +2640,41 @@ def create_gradio_interface():
         
         def handle_row_selection_new(qa_data, evt: gr.SelectData):
             """Handle table row selection"""
-            if not qa_data or evt.index[0] >= len(qa_data):
+            try:
+                print(f"DEBUG: Row selected - evt.index={evt.index}, qa_data length={len(qa_data) if qa_data else 0}")
+                
+                if not qa_data:
+                    print("ERROR: qa_data is empty")
+                    return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), [], None, "")
+                
+                if evt.index[0] >= len(qa_data):
+                    print(f"ERROR: Index {evt.index[0]} out of range for qa_data length {len(qa_data)}")
+                    return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), [], None, "")
+                
+                selected_qa = qa_data[evt.index[0]]
+                print(f"DEBUG: Selected QA keys: {selected_qa.keys()}")
+                
+                question = selected_qa.get("Question", "")
+                answer = selected_qa.get("Answer", "")
+                feedback = selected_qa.get("Feedback", "No feedback")
+                clarification = selected_qa.get("Clarification", "").replace("📝 SPOC Clarification (by", "").split("):", 1)[-1].strip() if selected_qa.get("Clarification") else ""
+                message_id = selected_qa.get("Message ID", "")
+                conversation_id = selected_qa.get("Conversation ID", "")
+                
+                print(f"DEBUG: Loading conversation {conversation_id}")
+                conversation = load_review_conversation_new(conversation_id) if conversation_id else []
+                print(f"DEBUG: Loaded conversation with {len(conversation)} messages")
+                
+                # Set button text based on whether clarification exists
+                button_text = "✏️ Edit Clarification" if clarification else "➕ Add Clarification"
+                
+                return (question, answer, feedback, clarification, gr.update(visible=True, value=button_text), conversation, message_id, conversation_id)
+            
+            except Exception as e:
+                print(f"ERROR in handle_row_selection_new: {e}")
+                import traceback
+                traceback.print_exc()
                 return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), [], None, "")
-            
-            selected_qa = qa_data[evt.index[0]]
-            question = selected_qa.get("Question", "")
-            answer = selected_qa.get("Answer", "")
-            feedback = selected_qa.get("Feedback", "No feedback")
-            clarification = selected_qa.get("Clarification", "").replace("📝 SPOC Clarification (by", "").split("):", 1)[-1].strip() if selected_qa.get("Clarification") else ""
-            message_id = selected_qa.get("Message ID", "")
-            conversation_id = selected_qa.get("Conversation ID", "")
-            
-            conversation = load_review_conversation_new(conversation_id) if conversation_id else []
-            
-            # DEBUG: Log conversation format
-            print(f"DEBUG: Conversation type: {type(conversation)}, length: {len(conversation) if isinstance(conversation, list) else 'N/A'}")
-            if conversation and len(conversation) > 0:
-                print(f"DEBUG: First message type: {type(conversation[0])}, content: {conversation[0]}")
-            
-            # Set button text based on whether clarification exists
-            button_text = "✏️ Edit Clarification" if clarification else "➕ Add Clarification"
-            
-            return (question, answer, feedback, clarification, gr.update(visible=True, value=button_text), conversation, message_id, conversation_id)
         
         def load_review_conversation_new(conversation_id):
             """Load conversation with clarifications"""
@@ -2761,6 +2782,9 @@ def create_gradio_interface():
         review_clarification_tab.select(
             fn=load_review_users_new,
             outputs=[review_user_dropdown]
+        ).then(
+            fn=lambda: ([], []),  # Clear table initially
+            outputs=[qa_table, selected_qa_data]
         )
         
         # Admin/SPOC: When user selected, load their sessions
@@ -3024,9 +3048,5 @@ def create_ui(app: FastAPI):
     
     # Mount Gradio interface
     demo = create_gradio_interface()
-    
-    # Set theme and CSS for Gradio 6.0+
-    demo.theme = gr.themes.Soft()
-    demo.css = get_main_app_css()
     
     mount_gradio_app(app, demo, path="/gradio")
