@@ -48,8 +48,7 @@ def create_gradio_interface():
     
     with gr.Blocks(
         theme=gr.themes.Soft(), 
-        title="Isha Sevabot",
-        css=get_main_app_css()
+        title="Isha Sevabot"
     ) as demo:
         
         # State variables
