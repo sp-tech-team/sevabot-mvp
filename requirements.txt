@@ -3,11 +3,10 @@ fastapi
 uvicorn[standard]
 python-multipart
 
-# UI - Stable version that avoids schema processing issues
-gradio==4.32.2
-huggingface_hub<0.20.0
+# UI - Basic working version
+gradio==4.20.0
 
-# Database - Compatible version that works with websockets
+# Database - Keep working version
 supabase==2.4.5
 websockets>=10.0,<12.0
 
@@ -29,7 +28,7 @@ langchain-text-splitters
 # Vector database
 chromadb
 
-# Document processing (LangChain compatible)
+# Document processing
 pypdf
 pymupdf
 python-docx
