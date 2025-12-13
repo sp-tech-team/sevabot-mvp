@@ -4,7 +4,7 @@ uvicorn[standard]
 python-multipart
 
 # UI - Basic working version
-gradio==4.20.0
+gradio==4.44.1
 huggingface_hub<0.20.0
 
 # Database - Keep working version
