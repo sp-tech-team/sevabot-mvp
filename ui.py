@@ -17,12 +17,25 @@ from ui_styles import (get_favicon_link, get_isha_logo_svg, get_landing_page_htm
 def _supports_messages_format():
     """Check if Gradio supports messages format"""
     try:
+        # Gradio 6.0+ always supports messages format
+        import gradio
+        version = gradio.__version__
+        print(f"DEBUG: Gradio version: {version}")
+        
+        # Force True for Gradio 6.0+
+        if version.startswith("6."):
+            print("DEBUG: Gradio 6.x detected - messages format ENABLED")
+            return True
+            
         test = gr.Chatbot(type="messages")
+        print("DEBUG: Gradio DOES support messages format")
         return True
-    except (TypeError, AttributeError):
+    except (TypeError, AttributeError) as e:
+        print(f"DEBUG: Gradio does NOT support messages format: {e}")
         return False
 
 GRADIO_SUPPORTS_MESSAGES = _supports_messages_format()
+print(f"DEBUG: GRADIO_SUPPORTS_MESSAGES = {GRADIO_SUPPORTS_MESSAGES}")
 
 def _convert_to_tuples(messages):
     """Convert messages format to tuples format for old Gradio"""
@@ -46,15 +59,22 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    with gr.Blocks(title="Isha Sevabot") as demo:
+    # Inject CSS via JavaScript for Gradio 6.0
+    css_injection_js = f"""
+    function() {{
+        const style = document.createElement('style');
+        style.innerHTML = `{get_main_app_css().replace('`', '\\`')}`;
+        document.head.appendChild(style);
         
-        # Inject CSS and favicon via HTML since Gradio 6.0 doesn't support head parameter
-        gr.HTML(f"""
-        <style>
-        {get_main_app_css()}
-        </style>
-        {get_favicon_link()}
-        """, visible=False)
+        const favicon = document.createElement('link');
+        favicon.rel = 'icon';
+        favicon.href = 'https://isha.sadhguru.org/favicon.ico';
+        favicon.type = 'image/x-icon';
+        document.head.appendChild(favicon);
+    }}
+    """
+    
+    with gr.Blocks(title="Isha Sevabot", js=css_injection_js) as demo:
         
         # State variables
         current_conversation_id = gr.State(None)
