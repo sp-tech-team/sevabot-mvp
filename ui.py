@@ -17,7 +17,6 @@ from ui_styles import (get_favicon_link, get_isha_logo_svg, get_landing_page_htm
 def _supports_messages_format():
     """Check if Gradio supports messages format"""
     try:
-        # Try creating a test chatbot with messages format
         test = gr.Chatbot(type="messages")
         return True
     except (TypeError, AttributeError):
@@ -44,26 +43,15 @@ def _convert_to_tuples(messages):
 def create_landing_page_html() -> str:
     """Landing page HTML"""
     return get_landing_page_html()
-
-
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    # Version-safe Blocks initialization
-    try:
-        demo = gr.Blocks(
-            theme=gr.themes.Soft(), 
-            title="Isha Sevabot",
-            head=get_favicon_link(),
-            css=get_main_app_css()
-        )
-    except TypeError:
-        try:
-            demo = gr.Blocks(title="Isha Sevabot", css=get_main_app_css())
-        except TypeError:
-            demo = gr.Blocks(title="Isha Sevabot")
-    
-    with demo:
+    with gr.Blocks(
+        theme=gr.themes.Soft(), 
+        title="Isha Sevabot",
+        head=get_favicon_link(),
+        css=get_main_app_css()
+    ) as demo:
         
         # State variables
         current_conversation_id = gr.State(None)
@@ -116,7 +104,8 @@ def create_gradio_interface():
                                 )
                                 refresh_chat_users_btn = gr.Button("🔄 Refresh Users", variant="secondary", scale=1)
                         
-                        # Chat interface - version-safe chatbot
+                        # Chat interface
+                        # Chat interface - version-aware
                         if GRADIO_SUPPORTS_MESSAGES:
                             chatbot = gr.Chatbot(
                                 label="",
@@ -2699,7 +2688,7 @@ def create_gradio_interface():
                             clarified_by_name = clarified_by.split('@')[0].replace('.', ' ').title() if '@' in clarified_by else clarified_by
                             history.append({"role": "assistant", "content": f"📝 **SPOC Clarification** (by {clarified_by_name}):\n\n{clarification}"})
                 
-                # Convert to tuples format if old Gradio
+                # Convert to tuples if old Gradio
                 if not GRADIO_SUPPORTS_MESSAGES:
                     return _convert_to_tuples(history)
                 
