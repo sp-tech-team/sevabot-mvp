@@ -49,7 +49,6 @@ def create_gradio_interface():
     with gr.Blocks(
         theme=gr.themes.Soft(), 
         title="Isha Sevabot",
-        head=get_favicon_link(),
         css=get_main_app_css()
     ) as demo:
         
@@ -2668,9 +2667,13 @@ def create_gradio_interface():
                 history = []
                 for msg in messages:
                     if msg["role"] == "user":
-                        history.append({"role": "user", "content": msg["content"]})
+                        # Ensure content is string to avoid Gradio format errors
+                        content = str(msg["content"]) if msg.get("content") is not None else ""
+                        history.append({"role": "user", "content": content})
                     elif msg["role"] == "assistant":
-                        history.append({"role": "assistant", "content": msg["content"]})
+                        # Ensure content is string to avoid Gradio format errors
+                        content = str(msg["content"]) if msg.get("content") is not None else ""
+                        history.append({"role": "assistant", "content": content})
                         
                         feedback = msg.get("feedback")
                         if feedback and feedback.lower() not in ["no feedback", "", "none"]:
