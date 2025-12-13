@@ -3,13 +3,11 @@ fastapi
 uvicorn[standard]
 python-multipart
 
-# UI - Basic working version
-gradio==4.20.0
-huggingface_hub<0.20.0
+# UI - Version flexible (supports both old and new)
+gradio>=4.0.0
 
-# Database - Keep working version
-supabase==2.4.5
-websockets>=10.0,<12.0
+# Database
+supabase
 
 # Environment
 python-dotenv
@@ -29,7 +27,7 @@ langchain-text-splitters
 # Vector database
 chromadb
 
-# Document processing
+# Document processing (LangChain compatible)
 pypdf
 pymupdf
 python-docx
