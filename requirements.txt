@@ -7,7 +7,7 @@ python-multipart
 gradio==4.26.0
 
 # Database - Use older supabase before websockets.asyncio requirement
-supabase==2.3.4
+supabase==2.4.5
 websockets>=10.0,<12.0
 
 # Environment
