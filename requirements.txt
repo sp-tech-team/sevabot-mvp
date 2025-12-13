@@ -5,6 +5,7 @@ python-multipart
 
 # UI - Basic working version
 gradio==4.20.0
+huggingface_hub<0.20.0
 
 # Database - Keep working version
 supabase==2.4.5
