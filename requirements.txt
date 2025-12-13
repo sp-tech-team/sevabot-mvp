@@ -3,10 +3,8 @@ fastapi
 uvicorn[standard]
 python-multipart
 
-# UI - Use older Gradio that works with older websockets
-gradio==4.44.1
-huggingface_hub<0.20.0
-
+# UI - Use older stable version that avoids schema processing issues
+gradio==4.32.2
 
 # Database - Use version that supports proxy parameter but avoids websockets.asyncio
 supabase==2.4.5
