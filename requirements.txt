@@ -5,6 +5,7 @@ python-multipart
 
 # UI - Use older Gradio that works with older websockets
 gradio==4.44.0
+huggingface_hub<0.20.0
 
 
 # Database - Use version that supports proxy parameter but avoids websockets.asyncio
