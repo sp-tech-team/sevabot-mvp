@@ -2595,7 +2595,11 @@ def create_gradio_interface():
                 else:
                     user_choices = []
                 
+                # Auto-select first user to trigger table load
+                if user_choices:
+                    return gr.update(choices=user_choices, value=user_choices[0][1])
                 return gr.update(choices=user_choices)
+                
             except Exception as e:
                 print(f"Error loading users: {e}")
                 return gr.update(choices=[])
