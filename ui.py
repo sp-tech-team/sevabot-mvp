@@ -54,26 +54,7 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    # CSS injection via JS - only way that works in Gradio 6.x
-    css_content = get_main_app_css()
-    # Escape for JS string literal
-    css_escaped = css_content.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$')
-    
-    css_injection_js = f"""
-    function() {{
-        const style = document.createElement('style');
-        style.textContent = `{css_escaped}`;
-        document.head.appendChild(style);
-        
-        const favicon = document.createElement('link');
-        favicon.rel = 'icon';
-        favicon.href = 'https://isha.sadhguru.org/favicon.ico';
-        favicon.type = 'image/x-icon';
-        document.head.appendChild(favicon);
-    }}
-    """
-    
-    with gr.Blocks(title="Isha Sevabot", js=css_injection_js) as demo:
+    with gr.Blocks(title="Isha Sevabot", css=get_main_app_css()) as demo:
         
         # State variables
         current_conversation_id = gr.State(None)
@@ -2694,14 +2675,14 @@ def create_gradio_interface():
                 # Set button text based on whether clarification exists
                 button_text = "✏️ Edit Clarification" if clarification else "➕ Add Clarification"
                 
-                # Return conversation as gr.update for Chatbot component
-                return (question, answer, feedback, clarification, gr.update(visible=True, value=button_text), gr.update(value=conversation), message_id, conversation_id)
+                # Return conversation directly (already in correct format from load_review_conversation_new)
+                return (question, answer, feedback, clarification, gr.update(visible=True, value=button_text), conversation, message_id, conversation_id)
             
             except Exception as e:
                 print(f"ERROR in handle_row_selection_new: {e}")
                 import traceback
                 traceback.print_exc()
-                return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), gr.update(value=[]), None, "")
+                return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), [], None, "")
         
         def load_review_conversation_new(conversation_id):
             """Load conversation with clarifications"""
