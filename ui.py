@@ -722,13 +722,16 @@ def create_gradio_interface():
                     # Right column: Chat Conversation
                     with gr.Column(scale=1):
                         gr.Markdown("### Full Conversation")
+                        print(f"DEBUG: Creating review chatbot, GRADIO_SUPPORTS_MESSAGES={GRADIO_SUPPORTS_MESSAGES}")
                         if GRADIO_SUPPORTS_MESSAGES:
+                            print("DEBUG: Creating chatbot WITH type='messages'")
                             review_conversation_chatbot = gr.Chatbot(
                                 label="", 
                                 height=600, 
                                 type="messages"
                             )
                         else:
+                            print("DEBUG: Creating chatbot WITHOUT type parameter")
                             review_conversation_chatbot = gr.Chatbot(
                                 label="", 
                                 height=600
