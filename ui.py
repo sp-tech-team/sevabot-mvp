@@ -60,10 +60,11 @@ def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
     # Inject CSS via JavaScript for Gradio 6.0
+    css_content = get_main_app_css().replace('`', '\\`').replace('\\', '\\\\')
     css_injection_js = f"""
     function() {{
         const style = document.createElement('style');
-        style.innerHTML = `{get_main_app_css().replace('`', '\\`')}`;
+        style.innerHTML = `{css_content}`;
         document.head.appendChild(style);
         
         const favicon = document.createElement('link');
