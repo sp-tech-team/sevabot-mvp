@@ -134,8 +134,6 @@ def create_gradio_interface():
                             chatbot = gr.Chatbot(
                                 label="",
                                 height="70vh",
-                                show_copy_button=True,
-                                show_share_button=False,
                                 type="messages"
                             )
                         else:
@@ -749,8 +747,7 @@ def create_gradio_interface():
                             review_conversation_chatbot = gr.Chatbot(
                                 label="", 
                                 height=600, 
-                                type="messages",
-                                show_copy_button=True
+                                type="messages"
                             )
                         else:
                             review_conversation_chatbot = gr.Chatbot(
