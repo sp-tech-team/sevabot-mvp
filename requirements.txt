@@ -3,11 +3,11 @@ fastapi==0.116.1
 uvicorn[standard]==0.35.0
 python-multipart
 
-# UI - Gradio 5.x (working version from local)
-gradio==5.42.0
+# UI - Gradio 4.x (compatible with supabase)
+gradio>=4.0.0,<5.0.0
 
-# Database
-supabase==1.0.3
+# Database - use newer version compatible with gradio
+supabase==2.0.0
 
 # Environment
 python-dotenv
