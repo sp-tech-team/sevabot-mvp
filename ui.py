@@ -722,16 +722,13 @@ def create_gradio_interface():
                     # Right column: Chat Conversation
                     with gr.Column(scale=1):
                         gr.Markdown("### Full Conversation")
-                        print(f"DEBUG: Creating review chatbot, GRADIO_SUPPORTS_MESSAGES={GRADIO_SUPPORTS_MESSAGES}")
                         if GRADIO_SUPPORTS_MESSAGES:
-                            print("DEBUG: Creating chatbot WITH type='messages'")
                             review_conversation_chatbot = gr.Chatbot(
                                 label="", 
                                 height=600, 
                                 type="messages"
                             )
                         else:
-                            print("DEBUG: Creating chatbot WITHOUT type parameter")
                             review_conversation_chatbot = gr.Chatbot(
                                 label="", 
                                 height=600
@@ -2641,19 +2638,10 @@ def create_gradio_interface():
         def handle_row_selection_new(qa_data, evt: gr.SelectData):
             """Handle table row selection"""
             try:
-                print(f"DEBUG: Row selected - evt.index={evt.index}, qa_data length={len(qa_data) if qa_data else 0}")
-                
-                if not qa_data:
-                    print("ERROR: qa_data is empty")
-                    return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), [], None, "")
-                
-                if evt.index[0] >= len(qa_data):
-                    print(f"ERROR: Index {evt.index[0]} out of range for qa_data length {len(qa_data)}")
+                if not qa_data or evt.index[0] >= len(qa_data):
                     return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), [], None, "")
                 
                 selected_qa = qa_data[evt.index[0]]
-                print(f"DEBUG: Selected QA keys: {selected_qa.keys()}")
-                
                 question = selected_qa.get("Question", "")
                 answer = selected_qa.get("Answer", "")
                 feedback = selected_qa.get("Feedback", "No feedback")
@@ -2661,24 +2649,12 @@ def create_gradio_interface():
                 message_id = selected_qa.get("Message ID", "")
                 conversation_id = selected_qa.get("Conversation ID", "")
                 
-                print(f"DEBUG: Loading conversation {conversation_id}")
+                # Load conversation
                 conversation = load_review_conversation_new(conversation_id) if conversation_id else []
-                print(f"DEBUG: Loaded conversation with {len(conversation)} messages")
                 
-                # DEBUG: Print exact structure
-                if conversation:
-                    print(f"DEBUG: Conversation type: {type(conversation)}")
-                    print(f"DEBUG: First message: {conversation[0]}")
-                    print(f"DEBUG: First message type: {type(conversation[0])}")
-                    if isinstance(conversation[0], dict):
-                        print(f"DEBUG: First message keys: {conversation[0].keys()}")
-                        print(f"DEBUG: First message role type: {type(conversation[0].get('role'))}")
-                        print(f"DEBUG: First message content type: {type(conversation[0].get('content'))}")
-                
-                # Set button text based on whether clarification exists
+                # Set button text
                 button_text = "✏️ Edit Clarification" if clarification else "➕ Add Clarification"
                 
-                # Return conversation directly (already in correct format from load_review_conversation_new)
                 return (question, answer, feedback, clarification, gr.update(visible=True, value=button_text), conversation, message_id, conversation_id)
             
             except Exception as e:
@@ -2688,7 +2664,7 @@ def create_gradio_interface():
                 return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), [], None, "")
         
         def load_review_conversation_new(conversation_id):
-            """Load conversation with clarifications"""
+            """Load conversation for review tab - matches chat tab format"""
             if not conversation_id:
                 return []
             
@@ -2697,55 +2673,39 @@ def create_gradio_interface():
                 if not messages:
                     return []
                 
+                # Build history in SAME format as chat tab
                 history = []
+                
                 for msg in messages:
                     if msg["role"] == "user":
-                        content = msg.get("content") or ""
-                        history.append({"role": "user", "content": str(content)})
+                        history.append({"role": "user", "content": str(msg.get("content") or "")})
+                    
                     elif msg["role"] == "assistant":
-                        content = msg.get("content") or ""
-                        history.append({"role": "assistant", "content": str(content)})
+                        history.append({"role": "assistant", "content": str(msg.get("content") or "")})
                         
+                        # Add feedback as separate assistant message if exists
                         feedback = msg.get("feedback")
                         if feedback and feedback.lower() not in ["no feedback", "", "none", "null"]:
-                            feedback_display = feedback
                             if ":" in feedback:
                                 feedback_type, remarks = feedback.split(":", 1)
-                                feedback_display = f"**{feedback_type.title()}** - {remarks}"
+                                feedback_text = f"📊 **User Feedback:** {feedback_type.title()} - {remarks}"
                             else:
-                                feedback_display = f"**{feedback.title()}**"
-                            history.append({"role": "assistant", "content": f"📊 **User Feedback:** {feedback_display}"})
+                                feedback_text = f"📊 **User Feedback:** {feedback.title()}"
+                            history.append({"role": "assistant", "content": feedback_text})
                         
+                        # Add clarification as separate assistant message if exists
                         clarification = msg.get("clarification_text")
                         if clarification:
                             clarified_by = msg.get("clarified_by", "SPOC")
                             clarified_by_name = clarified_by.split('@')[0].replace('.', ' ').title() if '@' in clarified_by else clarified_by
-                            history.append({"role": "assistant", "content": f"📝 **SPOC Clarification** (by {clarified_by_name}):\n\n{clarification}"})
+                            clarification_text = f"📝 **SPOC Clarification** (by {clarified_by_name}):\n\n{clarification}"
+                            history.append({"role": "assistant", "content": clarification_text})
                 
-                # Convert to tuples if old Gradio
-                if not GRADIO_SUPPORTS_MESSAGES:
-                    return _convert_to_tuples(history)
-                
-                # Validate all messages have required fields for Gradio 6.0
-                for i, msg in enumerate(history):
-                    if not isinstance(msg, dict):
-                        print(f"ERROR: Message {i} is not a dict: {type(msg)}")
-                        return []
-                    if "role" not in msg or "content" not in msg:
-                        print(f"ERROR: Message {i} missing role/content: {msg}")
-                        return []
-                    if not isinstance(msg["content"], str):
-                        print(f"ERROR: Message {i} content not string: {type(msg['content'])}")
-                        msg["content"] = str(msg["content"])
-                
-                # FINAL DEBUG: Print what we're returning
-                print(f"DEBUG load_review_conversation_new: Returning {len(history)} messages")
-                for i, msg in enumerate(history[:3]):  # Print first 3
-                    print(f"DEBUG Message {i}: role={msg.get('role')!r} content_len={len(msg.get('content', ''))}")
-                
+                print(f"DEBUG load_review: Returning {len(history)} messages in dict format")
                 return history
+                
             except Exception as e:
-                print(f"Error loading conversation: {e}")
+                print(f"ERROR loading review conversation: {e}")
                 import traceback
                 traceback.print_exc()
                 return []
@@ -2754,12 +2714,6 @@ def create_gradio_interface():
             """Refresh after saving clarification"""
             table_data, qa_data = filter_qa_data_new(user_email, session_filter, status_filter)
             conversation = load_review_conversation_new(conversation_id) if conversation_id else []
-            
-            print(f"DEBUG refresh_after_clarification_save: conversation_id={conversation_id}")
-            print(f"DEBUG: conversation type={type(conversation)}, len={len(conversation) if isinstance(conversation, list) else 'N/A'}")
-            if conversation and len(conversation) > 0:
-                print(f"DEBUG: First item type={type(conversation[0])}")
-            
             return table_data, qa_data, conversation
         
         # In-place clarification editing handlers
