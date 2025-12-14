@@ -13,48 +13,20 @@ from constants import USER_ROLES
 
 from ui_styles import (get_favicon_link, get_isha_logo_svg, get_landing_page_html, get_main_app_css)
 
-# Detect Gradio version capabilities
-def _supports_messages_format():
-    """Check if Gradio supports messages format"""
-    try:
-        import gradio
-        version = gradio.__version__
-        print(f"DEBUG: Gradio version: {version}")
-        
-        # Actually test if type="messages" works
-        test = gr.Chatbot(type="messages")
-        print("DEBUG: Gradio DOES support type='messages' parameter")
-        return True
-    except (TypeError, AttributeError) as e:
-        print(f"DEBUG: Gradio does NOT support type='messages': {e}")
-        return False
-
-GRADIO_SUPPORTS_MESSAGES = _supports_messages_format()
-print(f"DEBUG: GRADIO_SUPPORTS_MESSAGES = {GRADIO_SUPPORTS_MESSAGES}")
-
-def _convert_to_tuples(messages):
-    """Convert messages format to tuples format for old Gradio"""
-    if not messages:
-        return []
-    tuples = []
-    i = 0
-    while i < len(messages):
-        if i < len(messages) and messages[i].get("role") == "user":
-            user_msg = messages[i].get("content", "")
-            assistant_msg = messages[i+1].get("content", "") if i+1 < len(messages) and messages[i+1].get("role") == "assistant" else ""
-            tuples.append([user_msg, assistant_msg])
-            i += 2
-        else:
-            i += 1
-    return tuples
-
 def create_landing_page_html() -> str:
     """Landing page HTML"""
     return get_landing_page_html()
+
+
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    with gr.Blocks(title="Isha Sevabot", css=get_main_app_css()) as demo:
+    with gr.Blocks(
+        theme=gr.themes.Soft(), 
+        title="Isha Sevabot",
+        head=get_favicon_link(),
+        css=get_main_app_css()
+    ) as demo:
         
         # State variables
         current_conversation_id = gr.State(None)
@@ -108,18 +80,13 @@ def create_gradio_interface():
                                 refresh_chat_users_btn = gr.Button("🔄 Refresh Users", variant="secondary", scale=1)
                         
                         # Chat interface
-                        # Chat interface - version-aware
-                        if GRADIO_SUPPORTS_MESSAGES:
-                            chatbot = gr.Chatbot(
-                                label="",
-                                height="70vh",
-                                type="messages"
-                            )
-                        else:
-                            chatbot = gr.Chatbot(
-                                label="",
-                                height="70vh"
-                            )
+                        chatbot = gr.Chatbot(
+                            label="",
+                            height="70vh",
+                            show_copy_button=True,
+                            show_share_button=False,
+                            type="messages"
+                        )
                         
                         # Feedback row
                         with gr.Column(visible=False, elem_classes="feedback-container") as feedback_row:
@@ -690,11 +657,13 @@ def create_gradio_interface():
                             label="Question", 
                             lines=3, 
                             interactive=False,
+                            show_copy_button=True
                         )
                         selected_answer_display = gr.Textbox(
                             label="Answer", 
                             lines=5, 
                             interactive=False,
+                            show_copy_button=True
                         )
                         selected_feedback_display = gr.Textbox(
                             label="Feedback", 
@@ -722,17 +691,12 @@ def create_gradio_interface():
                     # Right column: Chat Conversation
                     with gr.Column(scale=1):
                         gr.Markdown("### Full Conversation")
-                        if GRADIO_SUPPORTS_MESSAGES:
-                            review_conversation_chatbot = gr.Chatbot(
-                                label="", 
-                                height=600, 
-                                type="messages"
-                            )
-                        else:
-                            review_conversation_chatbot = gr.Chatbot(
-                                label="", 
-                                height=600
-                            )
+                        review_conversation_chatbot = gr.Chatbot(
+                            label="", 
+                            height=600, 
+                            type="messages",
+                            show_copy_button=True
+                        )
                 
                 # State variables
                 selected_qa_data = gr.State([])
@@ -2595,11 +2559,7 @@ def create_gradio_interface():
                 else:
                     user_choices = []
                 
-                # Auto-select first user to trigger table load
-                if user_choices:
-                    return gr.update(choices=user_choices, value=user_choices[0][1])
                 return gr.update(choices=user_choices)
-                
             except Exception as e:
                 print(f"Error loading users: {e}")
                 return gr.update(choices=[])
@@ -2641,34 +2601,26 @@ def create_gradio_interface():
         
         def handle_row_selection_new(qa_data, evt: gr.SelectData):
             """Handle table row selection"""
-            try:
-                if not qa_data or evt.index[0] >= len(qa_data):
-                    return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), [], None, "")
-                
-                selected_qa = qa_data[evt.index[0]]
-                question = selected_qa.get("Question", "")
-                answer = selected_qa.get("Answer", "")
-                feedback = selected_qa.get("Feedback", "No feedback")
-                clarification = selected_qa.get("Clarification", "").replace("📝 SPOC Clarification (by", "").split("):", 1)[-1].strip() if selected_qa.get("Clarification") else ""
-                message_id = selected_qa.get("Message ID", "")
-                conversation_id = selected_qa.get("Conversation ID", "")
-                
-                # Load conversation
-                conversation = load_review_conversation_new(conversation_id) if conversation_id else []
-                
-                # Set button text
-                button_text = "✏️ Edit Clarification" if clarification else "➕ Add Clarification"
-                
-                return (question, answer, feedback, clarification, gr.update(visible=True, value=button_text), conversation, message_id, conversation_id)
-            
-            except Exception as e:
-                print(f"ERROR in handle_row_selection_new: {e}")
-                import traceback
-                traceback.print_exc()
+            if not qa_data or evt.index[0] >= len(qa_data):
                 return ("", "", "", "", gr.update(visible=False, value="➕ Add Clarification"), [], None, "")
+            
+            selected_qa = qa_data[evt.index[0]]
+            question = selected_qa.get("Question", "")
+            answer = selected_qa.get("Answer", "")
+            feedback = selected_qa.get("Feedback", "No feedback")
+            clarification = selected_qa.get("Clarification", "").replace("📝 SPOC Clarification (by", "").split("):", 1)[-1].strip() if selected_qa.get("Clarification") else ""
+            message_id = selected_qa.get("Message ID", "")
+            conversation_id = selected_qa.get("Conversation ID", "")
+            
+            conversation = load_review_conversation_new(conversation_id) if conversation_id else []
+            
+            # Set button text based on whether clarification exists
+            button_text = "✏️ Edit Clarification" if clarification else "➕ Add Clarification"
+            
+            return (question, answer, feedback, clarification, gr.update(visible=True, value=button_text), conversation, message_id, conversation_id)
         
         def load_review_conversation_new(conversation_id):
-            """Load conversation for review tab - matches chat tab format"""
+            """Load conversation with clarifications"""
             if not conversation_id:
                 return []
             
@@ -2677,41 +2629,32 @@ def create_gradio_interface():
                 if not messages:
                     return []
                 
-                # Build history in SAME format as chat tab
                 history = []
-                
                 for msg in messages:
                     if msg["role"] == "user":
-                        history.append({"role": "user", "content": str(msg.get("content") or "")})
-                    
+                        history.append({"role": "user", "content": msg["content"]})
                     elif msg["role"] == "assistant":
-                        history.append({"role": "assistant", "content": str(msg.get("content") or "")})
+                        history.append({"role": "assistant", "content": msg["content"]})
                         
-                        # Add feedback as separate assistant message if exists
                         feedback = msg.get("feedback")
-                        if feedback and feedback.lower() not in ["no feedback", "", "none", "null"]:
+                        if feedback and feedback.lower() not in ["no feedback", "", "none"]:
+                            feedback_display = feedback
                             if ":" in feedback:
                                 feedback_type, remarks = feedback.split(":", 1)
-                                feedback_text = f"📊 **User Feedback:** {feedback_type.title()} - {remarks}"
+                                feedback_display = f"**{feedback_type.title()}** - {remarks}"
                             else:
-                                feedback_text = f"📊 **User Feedback:** {feedback.title()}"
-                            history.append({"role": "assistant", "content": feedback_text})
+                                feedback_display = f"**{feedback.title()}**"
+                            history.append({"role": "assistant", "content": f"📊 **User Feedback:** {feedback_display}"})
                         
-                        # Add clarification as separate assistant message if exists
                         clarification = msg.get("clarification_text")
                         if clarification:
                             clarified_by = msg.get("clarified_by", "SPOC")
                             clarified_by_name = clarified_by.split('@')[0].replace('.', ' ').title() if '@' in clarified_by else clarified_by
-                            clarification_text = f"📝 **SPOC Clarification** (by {clarified_by_name}):\n\n{clarification}"
-                            history.append({"role": "assistant", "content": clarification_text})
+                            history.append({"role": "assistant", "content": f"📝 **SPOC Clarification** (by {clarified_by_name}):\n\n{clarification}"})
                 
-                print(f"DEBUG load_review: Returning {len(history)} messages in dict format")
                 return history
-                
             except Exception as e:
-                print(f"ERROR loading review conversation: {e}")
-                import traceback
-                traceback.print_exc()
+                print(f"Error loading conversation: {e}")
                 return []
         
         def refresh_after_clarification_save(user_email, session_filter, status_filter, conversation_id):
@@ -2857,9 +2800,6 @@ def create_gradio_interface():
         review_clarification_tab.select(
             fn=lambda: load_user_review_sessions() if not ui_service.is_admin_or_spoc() else gr.update(),
             outputs=[user_review_session_dropdown]
-        ).then(
-            fn=lambda: load_user_clarified_qa("all") if not ui_service.is_admin_or_spoc() else ([], []),
-            outputs=[qa_table, selected_qa_data]
         )
         
         # When user selects a session
@@ -2871,9 +2811,6 @@ def create_gradio_interface():
         
         # Refresh button for users
         refresh_user_review_btn.click(
-            fn=load_user_review_sessions,
-            outputs=[user_review_session_dropdown]
-        ).then(
             fn=load_user_clarified_qa,
             inputs=[user_review_session_dropdown],
             outputs=[qa_table, selected_qa_data]
@@ -3025,5 +2962,4 @@ def create_ui(app: FastAPI):
     
     # Mount Gradio interface
     demo = create_gradio_interface()
-    
     mount_gradio_app(app, demo, path="/gradio")

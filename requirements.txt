@@ -1,13 +1,13 @@
 # Core framework
-fastapi
-uvicorn[standard]
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
 python-multipart
 
-# UI - Version flexible (supports both old and new)
-gradio>=4.0.0
+# UI - Gradio 5.x (working version from local)
+gradio==5.42.0
 
 # Database
-supabase
+supabase==1.0.3
 
 # Environment
 python-dotenv
@@ -16,23 +16,23 @@ python-dotenv
 itsdangerous
 
 # AI and ML
-openai
-langchain
-langchain-core
-langchain-openai
-langchain-chroma
-langchain-community
-langchain-text-splitters
+openai==1.99.9
+langchain==0.3.27
+langchain-core==0.3.74
+langchain-openai==0.3.30
+langchain-chroma==0.2.5
+langchain-community==0.3.27
+langchain-text-splitters==0.3.9
 
 # Vector database
-chromadb
+chromadb==1.0.16
 
-# Document processing (LangChain compatible)
-pypdf
-pymupdf
-python-docx
+# Document processing
+pypdf==6.0.0
+pymupdf==1.26.4
+python-docx==1.2.0
 docx2txt
 
 # Utilities
-boto3
+boto3==1.40.30
 botocore
