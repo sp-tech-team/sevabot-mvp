@@ -2762,9 +2762,6 @@ def create_gradio_interface():
         review_clarification_tab.select(
             fn=load_review_users_new,
             outputs=[review_user_dropdown]
-        ).then(
-            fn=lambda: ([], []),  # Clear table initially
-            outputs=[qa_table, selected_qa_data]
         )
         
         # Admin/SPOC: When user selected, load their sessions
