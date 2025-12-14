@@ -17,21 +17,16 @@ from ui_styles import (get_favicon_link, get_isha_logo_svg, get_landing_page_htm
 def _supports_messages_format():
     """Check if Gradio supports messages format"""
     try:
-        # Gradio 6.0+ always supports messages format
         import gradio
         version = gradio.__version__
         print(f"DEBUG: Gradio version: {version}")
         
-        # Force True for Gradio 6.0+
-        if version.startswith("6."):
-            print("DEBUG: Gradio 6.x detected - messages format ENABLED")
-            return True
-            
+        # Actually test if type="messages" works
         test = gr.Chatbot(type="messages")
-        print("DEBUG: Gradio DOES support messages format")
+        print("DEBUG: Gradio DOES support type='messages' parameter")
         return True
     except (TypeError, AttributeError) as e:
-        print(f"DEBUG: Gradio does NOT support messages format: {e}")
+        print(f"DEBUG: Gradio does NOT support type='messages': {e}")
         return False
 
 GRADIO_SUPPORTS_MESSAGES = _supports_messages_format()
@@ -59,12 +54,15 @@ def create_landing_page_html() -> str:
 def create_gradio_interface():
     """Create main Gradio interface with enhanced file management"""
     
-    # Inject CSS via JavaScript for Gradio 6.0
-    css_content = get_main_app_css().replace('`', '\\`').replace('\\', '\\\\')
+    # CSS injection via JS - only way that works in Gradio 6.x
+    css_content = get_main_app_css()
+    # Escape for JS string literal
+    css_escaped = css_content.replace('\\', '\\\\').replace('`', '\\`').replace('$', '\\$')
+    
     css_injection_js = f"""
     function() {{
         const style = document.createElement('style');
-        style.innerHTML = `{css_content}`;
+        style.textContent = `{css_escaped}`;
         document.head.appendChild(style);
         
         const favicon = document.createElement('link');
