@@ -1,13 +1,13 @@
 # Core framework
-fastapi==0.116.1
-uvicorn[standard]==0.35.0
+fastapi
+uvicorn[standard]
 python-multipart
 
-# UI - Gradio 4.x (compatible with supabase)
-gradio>=4.0.0,<5.0.0
+# UI - Gradio 4.x stable (avoid 6.x which breaks everything)
+gradio>=4.0.0,<6.0.0
 
-# Database - use newer version compatible with gradio
-supabase==2.0.0
+# Database
+supabase
 
 # Environment
 python-dotenv
@@ -15,24 +15,24 @@ python-dotenv
 # Authentication
 itsdangerous
 
-# AI and ML
-openai==1.99.9
-langchain==0.3.27
-langchain-core==0.3.74
-langchain-openai==0.3.30
-langchain-chroma==0.2.5
-langchain-community==0.3.27
-langchain-text-splitters==0.3.9
+# AI and ML - let pip resolve compatible versions
+openai
+langchain
+langchain-core
+langchain-openai
+langchain-chroma
+langchain-community
+langchain-text-splitters
 
 # Vector database
-chromadb==1.0.16
+chromadb
 
 # Document processing
-pypdf==6.0.0
-pymupdf==1.26.4
-python-docx==1.2.0
+pypdf
+pymupdf
+python-docx
 docx2txt
 
 # Utilities
-boto3==1.40.30
+boto3
 botocore
