@@ -2754,6 +2754,12 @@ def create_gradio_interface():
             """Refresh after saving clarification"""
             table_data, qa_data = filter_qa_data_new(user_email, session_filter, status_filter)
             conversation = load_review_conversation_new(conversation_id) if conversation_id else []
+            
+            print(f"DEBUG refresh_after_clarification_save: conversation_id={conversation_id}")
+            print(f"DEBUG: conversation type={type(conversation)}, len={len(conversation) if isinstance(conversation, list) else 'N/A'}")
+            if conversation and len(conversation) > 0:
+                print(f"DEBUG: First item type={type(conversation[0])}")
+            
             return table_data, qa_data, conversation
         
         # In-place clarification editing handlers
