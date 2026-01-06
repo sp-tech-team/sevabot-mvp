@@ -3,8 +3,8 @@ fastapi
 uvicorn[standard]
 python-multipart
 
-# UI
-gradio
+# UI - Gradio 4.x stable (avoid 6.x which breaks everything)
+gradio>=4.0.0,<6.0.0
 
 # Database
 supabase
@@ -15,7 +15,7 @@ python-dotenv
 # Authentication
 itsdangerous
 
-# AI and ML
+# AI and ML - let pip resolve compatible versions
 openai
 langchain
 langchain-core
@@ -27,7 +27,7 @@ langchain-text-splitters
 # Vector database
 chromadb
 
-# Document processing (LangChain compatible)
+# Document processing
 pypdf
 pymupdf
 python-docx
